@@ -55,11 +55,6 @@ CPA Usage Keeper is a standalone persistence and analytics dashboard for [CLIPro
 </p>
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/ranking-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/ranking-light.png" />
-    <img src="./assets/screenshots/ranking-light.png" alt="CPA Usage Keeper Ranking" width="49%" />
-  </picture>
-  <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/login-dark.png" />
     <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/login-light.png" />
     <img src="./assets/screenshots/login-light.png" alt="CPA Usage Keeper Login" width="49%" />
@@ -73,7 +68,6 @@ CPA Usage Keeper is a standalone persistence and analytics dashboard for [CLIPro
 - Inspect and export request-level events with configurable table columns
 - Analyze usage trends, cost composition, model/API Key/AI Provider mix, hourly heatmaps, and latency diagnostics
 - Monitor Auth Files and AI Providers with usage metrics, health inspection, and quota refresh
-- Opt into community rankings by overall score, tokens, requests, cache rate, average TTFT/latency, or peak TPM/RPM
 - Open a read-only usage view scoped to an individual CPA API Key
 - Sync CPA Auth Files, API Keys, and AI Providers automatically, and maintain model pricing for cost estimates
 - Deploy with Docker/Docker Compose, Homebrew, binaries, or systemd, with optional password protection
@@ -113,7 +107,6 @@ internal/poller/         CPA usage and metadata synchronization
 internal/repository/     SQLite persistence and aggregations
 internal/service/        Usage, pricing, and identity services
 internal/quota/          Provider quota refresh and inspection
-internal/ranking/        Community ranking aggregation and sync
 deploy/linux/            systemd service template
 web/                     React + TypeScript frontend
 ```

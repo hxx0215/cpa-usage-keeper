@@ -55,11 +55,6 @@ CPA Usage Keeper 是面向 [CLIProxyAPI（CPA）](https://github.com/router-for-
 </p>
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/ranking-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/ranking-light.png" />
-    <img src="./assets/screenshots/ranking-light.png" alt="CPA Usage Keeper 排名" width="49%" />
-  </picture>
-  <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/login-dark.png" />
     <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/login-light.png" />
     <img src="./assets/screenshots/login-light.png" alt="CPA Usage Keeper 登录页" width="49%" />
@@ -73,7 +68,6 @@ CPA Usage Keeper 是面向 [CLIProxyAPI（CPA）](https://github.com/router-for-
 - 查看和导出请求级事件，并自定义表格列
 - 分析用量趋势、成本构成、模型/API Key/AI Provider 占比、时段热力图和延迟诊断
 - 监控 Auth Files 与 AI Providers 的用量、健康状态和限额，支持健康巡检与限额刷新
-- 可选择加入社区排名，按综合得分、Token、请求量、缓存率、平均 TTFT/延迟或峰值 TPM/RPM 对比表现
 - 为单个 CPA API Key 提供独立的只读用量视图
 - 自动同步 CPA Auth Files、API Keys 和 AI Providers，并维护模型价格用于成本估算
 - 支持 Docker/Docker Compose、Homebrew、二进制和 systemd 部署，并可启用密码保护
@@ -113,7 +107,6 @@ internal/poller/         CPA 用量与配置同步
 internal/repository/     SQLite 持久化与聚合
 internal/service/        用量、定价与身份服务
 internal/quota/          Provider 限额刷新与巡检
-internal/ranking/        社区排名聚合与同步
 deploy/linux/            systemd 服务模板
 web/                     React + TypeScript 前端
 ```

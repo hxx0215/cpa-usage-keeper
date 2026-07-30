@@ -124,10 +124,7 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisChartSurface).toContain('border-radius: $radius-lg;')
   })
 
-  it('keeps ranking filters out of the shared top toolbar so only Refresh remains there', () => {
-    expect(usagePageSource).not.toContain("import { RankingToolbar }")
-    expect(usagePageSource).not.toContain('<RankingToolbar')
-    expect(usagePageStyles).not.toContain('.rankingToolbarSlot')
+  it('keeps only Refresh as the shared top-toolbar action chrome', () => {
     expect(usagePageSource).toContain("import { MainActionButton } from '@/components/ui/MainActionButton'")
     expect(usagePageSource).toContain('<MainActionButton')
     expect(keyOverviewPageSource).toContain("import { MainActionButton } from '@/components/ui/MainActionButton'")
@@ -648,7 +645,6 @@ describe('UsagePage toolbar styles', () => {
   it('keeps normal-mode range controls mounted in a stable transition slot', () => {
     expect(usagePageSource).toContain("${!isEmbeddedInCPAMC ? styles.toolbarActionsRightAnimated : ''}")
     expect(usagePageSource).toContain('{(!isEmbeddedInCPAMC || showRangeControls) && (')
-    expect(usagePageSource).not.toContain("activeTab !== 'ranking' &&")
     expect(usagePageSource).toContain('showRangeControls ? styles.usageFilterTransitionOpen : \'\'')
     expect(usagePageSource).toContain('inert={!showRangeControls}')
     expect(usagePageSource).toContain('<div className={styles.usageFilterBar}>')
@@ -766,12 +762,14 @@ describe('UsagePage toolbar styles', () => {
     expect(typesSource).not.toContain('latency_diagnostics: AnalysisLatencyDiagnostics')
   })
 
-  it('keeps Analysis before Ranking and Request Events', () => {
+  it('keeps Analysis before Request Events and omits Ranking', () => {
     expect(i18nSource).toContain("tab_analysis: 'Analysis'")
     expect(i18nSource).not.toContain("tab_analysis: 'API & Models'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 与模型'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 與模型'")
-    expect(usagePageSource).toContain("const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'ranking', 'events', 'auth-files', 'ai-provider', 'settings'] as const")
+    expect(i18nSource).not.toContain('tab_ranking')
+    expect(usagePageSource).toContain("const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'auth-files', 'ai-provider', 'settings'] as const")
+    expect(usagePageSource).not.toContain("'ranking'")
   })
 
   it('keeps Sign out as the rightmost shared main action after Check Updates', () => {

@@ -12,6 +12,13 @@ AGENTS.md
 !.env.example
 !deploy/.env.example
 
+# nix / direnv local state
+.direnv/
+.go/
+.npm-cache/
+result
+result-*
+
 # runtime data
 /data/
 /test/
