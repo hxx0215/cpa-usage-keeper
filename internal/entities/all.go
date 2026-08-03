@@ -12,7 +12,7 @@ func All() []any {
 		&CPAAPIKey{},
 		&UsageOverviewHourlyStat{},
 		&UsageOverviewDailyStat{},
-		// 三类全局聚合只注册一张通用 checkpoint 表；旧类型仅供历史 migration 编译。
+		// 全局聚合只注册一张通用 checkpoint 表；旧类型仅供历史 migration 编译。
 		&UsageAggregationCheckpoint{},
 		// Activity 统计必须随全新数据库直接创建。
 		&UsageActivityStat{},

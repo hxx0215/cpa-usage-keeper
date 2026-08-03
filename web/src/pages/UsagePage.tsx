@@ -1950,7 +1950,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
 
               <div className={`${styles.toolbarActionsRight} ${!isEmbeddedInCPAMC ? styles.toolbarActionsRightAnimated : ''}`.trim()}>
-                {(!isEmbeddedInCPAMC || showRangeControls) && (
+                <div className={isEmbeddedInCPAMC ? styles.toolbarContextSlotImmediate : styles.toolbarContextSlot}>
+                  {(!isEmbeddedInCPAMC || showRangeControls) && (
                   /* 普通模式保留筛选区节点以执行过渡；CPAMC 继续按需挂载，维持既有布局。 */
                   <div
                     className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showRangeControls ? styles.usageFilterTransitionOpen : ''}`.trim()}
@@ -1983,7 +1984,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       </div>
                     </div>
                   </div>
-                )}
+                  )}
+                </div>
                 <div className={styles.usageRefreshSlot}>
                   <div className={styles.usageFilterActions}>
                     <MainActionButton

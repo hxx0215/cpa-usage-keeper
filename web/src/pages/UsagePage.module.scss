@@ -443,9 +443,22 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
+  column-gap: 10px;
+}
+
+.toolbarContextSlot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: end;
+  min-width: 0;
+}
+
+.toolbarContextSlotImmediate {
+  display: contents;
 }
 
 .usageFilterTransition {
+  grid-area: 1 / 1;
   width: max-content;
   max-width: 0;
   min-width: 0;
@@ -648,6 +661,10 @@
   .toolbarActionsRightAnimated {
     grid-template-columns: minmax(0, 1fr);
     row-gap: 0;
+  }
+
+  .toolbarContextSlot {
+    width: 100%;
   }
 
   .usageFilterTransition,
