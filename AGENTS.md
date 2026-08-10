@@ -16,6 +16,13 @@
 - 日常工作分支：`main`
 - 代码和 tag 只推送到 `origin`，不要向 `upstream` 推送。
 
+### Tag 约定
+
+- `origin` 是本 fork tag 的唯一发布地；不要使用 `git push --tags` 批量推送本地 tag。
+- 可以沿用上游正式版本的 tag 名（例如 `v1.14.3`），但 fork 中的同名 tag 必须指向本次合并后的 fork 提交，而不是上游 tag 所指向的提交。
+- 上游 tag 只用于查询最新正式版本号，不复制、不推送，也不要在同步时自动写入本地普通 `refs/tags/*` 命名空间。
+- fork 侧创建 lightweight tag，并且只通过明确的 `refs/tags/<tag>` ref 推送到 `origin`。
+
 ## 固定的上游同步流程
 
 每次需要跟进上游时，都按下面的顺序执行，不能跳过“合并”或“验证”：
@@ -30,11 +37,13 @@
    ```
 
 2. 有未提交改动时先停下来并报告，不要丢弃、覆盖或自动 stash Master 的改动。
-3. 刷新上游分支和 tag：
+3. 只刷新上游分支，不把上游 tag 拉入本地 tag 命名空间：
 
    ```bash
-   git fetch --prune --tags upstream
+   git fetch --prune --no-tags upstream
    ```
+
+   不要使用 `git fetch --tags upstream` 或 `git fetch --all --tags`。上游正式 tag 只通过后文的 `git ls-remote` 查询；如需查看上游 tag，使用远端查询或单独的命名空间，不能覆盖 fork 自己的 `refs/tags/*`。
 
 4. 只以 `upstream/main` 作为代码同步来源。上游的 worktree/实验分支只用于查看，不作为默认合并目标。
 
@@ -74,7 +83,7 @@ git push origin main
 
 ### 4. 使用上游最新正式 tag 标记当前 fork
 
-“最后一个上游 tag”指上游正式发布的 `v*` tag，不是 worktree 分支上的临时提交。先从远端计算最新版本号：
+“最后一个上游 tag”指上游正式发布的 `v*` tag，不是 worktree 分支上的临时提交。只从远端查询版本号，不依赖本地 tag：
 
 ```bash
 latest_tag=$(git ls-remote --tags --refs upstream 'refs/tags/v*' \
@@ -85,7 +94,7 @@ test -n "$latest_tag"
 printf 'latest upstream tag: %s\n' "$latest_tag"
 ```
 
-将这个**同名 tag 指向本次合并后的当前 `HEAD`**，而不是重新指向上游原来的 tag 提交。上游 tag 被 fetch 到本地后，可能已经占用了同名本地 tag；只有确认 `origin` 尚不存在该 tag 时，才允许移动本地 tag：
+将这个**同名 lightweight tag 指向本次合并后的当前 `HEAD`**，而不是重新指向上游原来的 tag 提交。本地如果因历史操作已经存在同名 tag，只有确认 `origin` 尚不存在该 tag 时，才允许将本地 tag 移到当前 `HEAD`：
 
 ```bash
 remote_tag=$(git ls-remote --tags --refs origin "refs/tags/$latest_tag" | awk '{print $1}')
