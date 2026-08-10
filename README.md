@@ -98,6 +98,10 @@ Docker Compose is the recommended deployment method. Use the full stack when dep
 
 Login protection is enabled by default. Configure `LOGIN_PASSWORD` before starting Keeper, or explicitly set `AUTH_ENABLED=false` only when access is reliably isolated by the deployment environment.
 
+## Benchmark
+
+Production-style `linux/amd64` capacity measurements for sustained ingestion, Dashboard latency, CPU utilization, and Keeper cgroup peak memory are available in the [Capacity Benchmark Report](./internal/benchmark/REPORT.md).
+
 ## Project Structure
 
 ```text
@@ -109,6 +113,7 @@ internal/poller/         CPA usage and metadata synchronization
 internal/repository/     SQLite persistence and aggregations
 internal/service/        Usage, pricing, and identity services
 internal/quota/          Provider quota refresh and inspection
+internal/benchmark/      Capacity suite, reports, manifests, and legacy microbenchmarks
 deploy/linux/            systemd service template
 web/                     React + TypeScript frontend
 ```
@@ -118,7 +123,7 @@ web/                     React + TypeScript frontend
 ### Prerequisites
 
 - Go 1.26+
-- Node.js 22+
+- Node.js 24+
 - npm
 - A running [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) instance
 

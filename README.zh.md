@@ -98,6 +98,10 @@ Docker Compose 是推荐部署方式：首次部署可同时运行 CPA + Keeper�
 
 登录保护默认启用。启动 Keeper 前请配置 `LOGIN_PASSWORD`；只有部署环境已可靠隔离访问时，才显式设置 `AUTH_ENABLED=false`。
 
+## Benchmark
+
+`linux/amd64` 生产型容量测试覆盖持续 ingestion、Dashboard 延迟、CPU 利用率和 Keeper cgroup 峰值内存，完整结果见 [容量 Benchmark 报告](./internal/benchmark/REPORT.zh.md)。
+
 ## 项目结构
 
 ```text
@@ -109,6 +113,7 @@ internal/poller/         CPA 用量与配置同步
 internal/repository/     SQLite 持久化与聚合
 internal/service/        用量、定价与身份服务
 internal/quota/          Provider 限额刷新与巡检
+internal/benchmark/      容量套件、报告、manifest 与历史 Go microbenchmark
 deploy/linux/            systemd 服务模板
 web/                     React + TypeScript 前端
 ```
@@ -118,7 +123,7 @@ web/                     React + TypeScript 前端
 ### 前置依赖
 
 - Go 1.26+
-- Node.js 22+
+- Node.js 24+
 - npm
 - 一个可用的 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 实例
 
