@@ -11,7 +11,7 @@ import { useQuotaCache } from './useQuotaCache'
 import { useQuotaInspection } from './useQuotaInspection'
 import { ApiError, resetUsageQuota, updateUsageIdentityAlias, type UsageIdentityPageSort } from '@/lib/api'
 import i18n from '@/i18n'
-import type { UsageIdentityTypeCount, UsageQuotaCheckResponse, UsageQuotaInspectionStatusResponse } from '@/lib/types'
+import type { UsageIdentity, UsageIdentityTypeCount, UsageQuotaCheckResponse, UsageQuotaInspectionStatusResponse, UsageQuotaResetResponse } from '@/lib/types'
 import { quotaRefreshDisplayError, useQuotaRefreshTasks, type QuotaState } from './useQuotaRefreshTasks'
 import type { CredentialProviderFilterKey } from './credentialProviderFilters'
 
@@ -42,6 +42,7 @@ export interface CredentialsTabData {
   authFileTotalPages: number
   aiProviderTotalPages: number
   authFileActiveOnly: boolean
+  aiProviderActiveOnly: boolean
   authFileProviderFilter: CredentialProviderFilterKey
   aiProviderProviderFilter: CredentialProviderFilterKey
   authFileSort: UsageIdentityPageSort
@@ -51,6 +52,7 @@ export interface CredentialsTabData {
   setAuthFilePageSize: (pageSize: number) => void
   setAiProviderPageSize: (pageSize: number) => void
   setAuthFileActiveOnly: (activeOnly: boolean) => void
+  setAiProviderActiveOnly: (activeOnly: boolean) => void
   setAuthFileProviderFilter: (filter: CredentialProviderFilterKey) => void
   setAiProviderProviderFilter: (filter: CredentialProviderFilterKey) => void
   setAuthFileSort: (sort: UsageIdentityPageSort) => void
@@ -66,6 +68,7 @@ export interface CredentialsTabData {
   aliasSavingId: string
   refresh: () => Promise<void>
   saveUsageIdentityAlias: (id: string, alias: string) => Promise<void>
+  resetUsageIdentityStats: (id: string) => Promise<UsageIdentity>
   refreshQuotaForCurrentAuthFilePage: () => Promise<void>
   refreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
   resetQuotaForAuthIndex: (authIndex: string) => Promise<void>
@@ -153,6 +156,8 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
       }))
       if (outcome.kind === 'error') {
         onNotice?.('error', outcome.message)
+      } else if (outcome.kind === 'warning') {
+        onNotice?.('info', outcome.message)
       }
     } catch {
       setQuotaResetStateByAuthIndex((current) => ({
@@ -177,6 +182,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     authFileTotalPages: credentialPages.authFileTotalPages,
     aiProviderTotalPages: credentialPages.aiProviderTotalPages,
     authFileActiveOnly: credentialPages.authFileActiveOnly,
+    aiProviderActiveOnly: credentialPages.aiProviderActiveOnly,
     authFileProviderFilter: credentialPages.authFileProviderFilter,
     aiProviderProviderFilter: credentialPages.aiProviderProviderFilter,
     authFileSort: credentialPages.authFileSort,
@@ -186,6 +192,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     setAuthFilePageSize: credentialPages.setAuthFilePageSize,
     setAiProviderPageSize: credentialPages.setAiProviderPageSize,
     setAuthFileActiveOnly: credentialPages.setAuthFileActiveOnly,
+    setAiProviderActiveOnly: credentialPages.setAiProviderActiveOnly,
     setAuthFileProviderFilter: credentialPages.setAuthFileProviderFilter,
     setAiProviderProviderFilter: credentialPages.setAiProviderProviderFilter,
     setAuthFileSort: credentialPages.setAuthFileSort,
@@ -201,6 +208,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     aliasSavingId,
     refresh: refresh,
     saveUsageIdentityAlias,
+    resetUsageIdentityStats: credentialPages.resetStats,
     refreshQuotaForCurrentAuthFilePage: quotaRefreshTasks.refreshQuotaForCurrentAuthFilePage,
     refreshQuotaForAuthIndex: quotaRefreshTasks.refreshQuotaForAuthIndex,
     resetQuotaForAuthIndex,
@@ -213,18 +221,20 @@ export { quotaRefreshDisplayError }
 
 export type QuotaResetOutcome =
   | { kind: 'success' }
+  | { kind: 'warning'; message: string }
   | { kind: 'error'; message: string }
 
 export async function runQuotaResetForAuthIndex(
   authIndex: string,
   deps: {
-    resetUsageQuota: (authIndex: string) => Promise<unknown>
+    resetUsageQuota: (authIndex: string) => Promise<UsageQuotaResetResponse>
     refreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
   },
 ): Promise<QuotaResetOutcome> {
+  let result: UsageQuotaResetResponse
   try {
-    // reset 只负责消费官方次数；失败时不写行内限额缓存，也不触发刷新任务。
-    await deps.resetUsageQuota(authIndex)
+    // 后端在官方重置后恢复 CPA 路由；只有官方重置失败才中止额度刷新。
+    result = await deps.resetUsageQuota(authIndex)
   } catch {
     return {
       kind: 'error',
@@ -237,6 +247,9 @@ export async function runQuotaResetForAuthIndex(
     await deps.refreshQuotaForAuthIndex(authIndex)
   } catch {
     // reset 已成功消费官方次数，后续刷新失败不影响本次 reset 的成功提示。
+  }
+  if (result.recoveryFailed) {
+    return { kind: 'warning', message: i18n.t('usage_stats.credentials_quota_reset_recovery_failed') }
   }
   return { kind: 'success' }
 }

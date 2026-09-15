@@ -87,7 +87,8 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 		return nil, err
 	}
 	return &servicedto.UsageOverviewSnapshot{
-		Usage: overview.Usage,
+		Usage:       overview.Usage,
+		Comparisons: overview.Comparisons,
 		Summary: servicedto.UsageOverviewSummary{
 			RPM:                   overview.Summary.RPM,
 			TPM:                   overview.Summary.TPM,
@@ -104,6 +105,29 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 		},
 		Series: mapUsageOverviewSeries(overview.Series, filter),
 	}, nil
+}
+
+// GetUsageOverviewComparisons 为 Overview 比较图单独构建维度汇总，不拖慢基础 Overview 查询。
+func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
+	ctx = usageServiceContext(ctx)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	if err != nil {
+		return nil, err
+	}
+	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		Range:          filter.Range,
+		ComparisonOnly: true,
+		CustomUnit:     filter.CustomUnit,
+		StartTime:      filter.StartTime,
+		EndTime:        filter.EndTime,
+		EndExclusive:   filter.EndExclusive,
+		QueryNow:       filter.QueryNow,
+		APIGroupKey:    apiGroupKey,
+	}, s.recentUsage, s.pricing.NewResolver())
+	if err != nil {
+		return nil, err
+	}
+	return &servicedto.UsageOverviewSnapshot{Comparisons: overview.Comparisons}, nil
 }
 
 // GetUsageActivity 用统一时间条件选择档位；today/yesterday 额外保留本地自然日边界。
@@ -344,6 +368,7 @@ func usageOverviewSeriesCacheRate(inputTokens, cacheReadTokens int64) *float64 {
 
 func mapUsageOverviewRealtime(realtime repodto.UsageOverviewRealtimeRecord) servicedto.UsageOverviewRealtime {
 	return servicedto.UsageOverviewRealtime{
+		Insights:             &realtime.Insights,
 		Window:               realtime.Window,
 		BucketSeconds:        realtime.BucketSeconds,
 		WindowStart:          realtime.WindowStart,
@@ -672,11 +697,11 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		return nil, err
 	}
 	page, err := repository.ListUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		Range:        filter.Range,
-		CustomUnit:   filter.CustomUnit,
-		StartTime:    filter.StartTime,
-		EndTime:      filter.EndTime,
-		EndExclusive: filter.EndExclusive,
+		Range:           filter.Range,
+		CustomUnit:      filter.CustomUnit,
+		StartTime:       filter.StartTime,
+		EndTime:         filter.EndTime,
+		EndExclusive:    filter.EndExclusive,
 		Limit:           filter.Limit,
 		Page:            filter.Page,
 		PageSize:        filter.PageSize,
@@ -684,8 +709,10 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		CursorMode:      filter.CursorMode,
 		CursorTimestamp: filter.CursorTimestamp,
 		CursorID:        filter.CursorID,
+		SkipTotalCount:  filter.SkipTotalCount,
 		Model:           filter.Model,
 		AuthIndex:       filter.AuthIndex,
+		AuthType:        filter.AuthType,
 		APIGroupKey:     apiGroupKey,
 		Result:          filter.Result,
 	}, s.pricing.NewResolver())
@@ -745,6 +772,7 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 		EndExclusive: filter.EndExclusive,
 		Model:        filter.Model,
 		AuthIndex:    filter.AuthIndex,
+		AuthType:     filter.AuthType,
 		APIGroupKey:  apiGroupKey,
 		Result:       filter.Result,
 	}, func(row repodto.UsageEventRecord) error {

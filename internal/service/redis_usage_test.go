@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"cpa-usage-keeper/internal/quota"
 )
 
 func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
@@ -28,6 +30,8 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 		"auth_type":"api_key",
 		"api_key":"raw-key",
 		"request_id":"req-123",
+		"session_id":"session-root",
+		"parent_session_id":"session-parent",
 		"unknown":"ignored"
 	}`, fetchedAt)
 	if err != nil {
@@ -41,6 +45,9 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 	}
 	if event.Provider != "claude" || event.Endpoint != "/v1/messages" || event.AuthType != "apikey" || event.RequestID != "req-123" {
 		t.Fatalf("unexpected redis identity fields: %+v", event)
+	}
+	if event.SessionID != "session-root" || event.ParentSessionID != "session-parent" {
+		t.Fatalf("unexpected session fields: session_id=%q parent_session_id=%q", event.SessionID, event.ParentSessionID)
 	}
 	if event.ModelAlias == nil || *event.ModelAlias != "claude-sonnet-alias" {
 		t.Fatalf("expected model alias to decode, got %+v", event.ModelAlias)
@@ -99,12 +106,36 @@ func TestDecodeRedisUsageMessageWithHeadersExtractsQuotaSnapshot(t *testing.T) {
 	if snapshot.AuthType != "oauth" || snapshot.AuthIndex != "codex-auth" || snapshot.Provider != "codex" {
 		t.Fatalf("unexpected snapshot identity: %+v", snapshot)
 	}
-	if snapshot.Headers.Get("X-Codex-Plan-Type") != "pro" {
-		t.Fatalf("expected codex plan header, got %#v", snapshot.Headers)
+	if codexSnapshotPlan(snapshot) != "pro" {
+		t.Fatalf("expected decoded Codex plan, got %#v", snapshot.CacheOutput)
 	}
 	if snapshot.ObservedAt.IsZero() {
 		t.Fatalf("expected observed timestamp")
 	}
+}
+
+func codexSnapshotPlan(snapshot *quota.UsageHeaderSnapshot) string {
+	// 快照已不持有 Header；测试从只读 cache 投影验证同一字段语义。
+	if snapshot == nil {
+		return ""
+	}
+	result, ok := snapshot.CacheOutput.Result.(quota.CodexResult)
+	if !ok || result.Usage == nil {
+		return ""
+	}
+	return result.Usage.PlanType
+}
+
+func codexSnapshotPrimaryUsedPercent(snapshot *quota.UsageHeaderSnapshot) (float64, bool) {
+	// 主额度百分比从共享单次解码生成的 cache 投影读取，不依赖已释放的原始 Header。
+	if snapshot == nil {
+		return 0, false
+	}
+	result, ok := snapshot.CacheOutput.Result.(quota.CodexResult)
+	if !ok || result.Usage == nil || result.Usage.RateLimit == nil || result.Usage.RateLimit.PrimaryWindow == nil {
+		return 0, false
+	}
+	return result.Usage.RateLimit.PrimaryWindow.UsedPercent, true
 }
 
 func TestDecodeRedisUsageMessageWithHeadersSkipsMalformedHeadersWithoutBlockingEvent(t *testing.T) {

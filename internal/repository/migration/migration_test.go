@@ -77,6 +77,17 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260729_add_usage_event_client_metadata",
 		"20260730_create_usage_event_archive",
 		"20260813_add_auth_session_client_metadata",
+		// Errors 表已经随 main 发布，合并后的完整序列必须先保留该版本。
+		"20260820_create_error_events",
+		// 旧 Codex 主额度历史先按已发布顺序创建，后续迁移再清空并通用化。
+		"20260820_codex_quota_history",
+		"20260822_rebuild_quota_history",
+		"20260824_add_auth_session_alias",
+		"20260827_reset_quota_history",
+		"20260902_repair_usage_event_quota_window_index",
+		"20260905_usage_event_api_group_key_timestamp_index",
+		"20260910_usage_identity_stats_reset",
+		"20260912_usage_event_session_fields",
 	}
 	assertStringSlicesEqual(t, want, got)
 }
@@ -118,6 +129,9 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 		if !db.Migrator().HasColumn(&entities.AuthSession{}, column) {
 			t.Fatalf("expected auth_sessions.%s column to exist", column)
 		}
+	}
+	if !db.Migrator().HasColumn(&entities.AuthSession{}, "alias") {
+		t.Fatal("expected auth_sessions.alias column to exist")
 	}
 	if !db.Migrator().HasTable(&entities.AppSetting{}) {
 		t.Fatal("expected app_settings table to exist")

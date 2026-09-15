@@ -9,7 +9,6 @@ plans/
 .env
 .env.*
 !.env.example
-!deploy/.env.example
 
 # nix / direnv local state
 .direnv/

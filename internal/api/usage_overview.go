@@ -1,12 +1,14 @@
 package api
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
-	"cpa-usage-keeper/internal/auth"
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/service"
@@ -56,6 +58,7 @@ type usageOverviewSeries struct {
 }
 
 type usageOverviewRealtime struct {
+	Insights             *usageRealtimeInsights            `json:"insights,omitempty"`
 	Window               string                            `json:"window"`
 	Timezone             string                            `json:"timezone"`
 	BucketSeconds        int64                             `json:"bucket_seconds"`
@@ -70,6 +73,7 @@ type usageOverviewRealtime struct {
 }
 
 type keyUsageOverviewRealtime struct {
+	Insights             *usageRealtimeInsights               `json:"insights,omitempty"`
 	Window               string                               `json:"window"`
 	Timezone             string                               `json:"timezone"`
 	BucketSeconds        int64                                `json:"bucket_seconds"`
@@ -170,24 +174,10 @@ type usageOverviewCacheLevelPoint struct {
 	InputTokens         int64    `json:"input_tokens"`
 }
 
-func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsageProvider, cpaAPIKeyProvider service.CPAAPIKeyProvider, authHandler *authHandler) {
+func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsageProvider) {
 	router.GET("/key-overview", func(c *gin.Context) {
-		token, _ := c.Get("auth_token")
-		sessionValue, _ := c.Get("auth_session")
-		session, ok := sessionValue.(auth.Session)
-		if !ok || session.Role != auth.RoleAPIKeyViewer || session.CPAAPIKeyID <= 0 {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if cpaAPIKeyProvider == nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if _, err := cpaAPIKeyProvider.FindActiveCPAAPIKeyByID(c.Request.Context(), session.CPAAPIKeyID); err != nil {
-			if authHandler != nil {
-				authHandler.deleteSession(fmt.Sprint(token))
-				clearSessionCookie(c, authHandler.config.BasePath, resolveSessionToken(c).CookieKind)
-			}
+		session, _, ok := activeAPIKeyViewerContext(c)
+		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
@@ -196,40 +186,32 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 			writeUsageFilterParseError(c, err)
 			return
 		}
-		if authHandler != nil && !authHandler.allowKeyOverviewRequest(fmt.Sprint(token)) {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
-			return
-		}
 		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
 		writeUsageOverviewResponse(c, usageProvider, filter)
 	})
+	router.GET("/key-overview/comparisons", func(c *gin.Context) {
+		session, viewerKey, ok := activeAPIKeyViewerContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		filter, err := parseKeyUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
+		writeUsageOverviewComparisonsResponse(c, usageProvider, filter, nil, true, &viewerKey)
+	})
 	router.GET("/key-overview/realtime", func(c *gin.Context) {
-		token, _ := c.Get("auth_token")
-		sessionValue, _ := c.Get("auth_session")
-		session, ok := sessionValue.(auth.Session)
-		if !ok || session.Role != auth.RoleAPIKeyViewer || session.CPAAPIKeyID <= 0 {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if cpaAPIKeyProvider == nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if _, err := cpaAPIKeyProvider.FindActiveCPAAPIKeyByID(c.Request.Context(), session.CPAAPIKeyID); err != nil {
-			if authHandler != nil {
-				authHandler.deleteSession(fmt.Sprint(token))
-				clearSessionCookie(c, authHandler.config.BasePath, resolveSessionToken(c).CookieKind)
-			}
+		session, _, ok := activeAPIKeyViewerContext(c)
+		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
 		filter, err := parseKeyUsageRealtimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
 			writeUsageFilterParseError(c, err)
-			return
-		}
-		if authHandler != nil && !authHandler.allowKeyOverviewRequest(fmt.Sprint(token), "realtime") {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
 			return
 		}
 		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
@@ -250,6 +232,14 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 		}
 		writeUsageOverviewResponse(c, usageProvider, filter)
 	})
+	router.GET("/usage/overview/comparisons", func(c *gin.Context) {
+		filter, err := parseUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		writeUsageOverviewComparisonsResponse(c, usageProvider, filter, cpaAPIKeyProvider, false, nil)
+	})
 	router.GET("/usage/overview/realtime", func(c *gin.Context) {
 		filter, err := parseUsageRealtimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
@@ -258,6 +248,32 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 		}
 		writeUsageOverviewRealtimeResponse(c, usageProvider, cpaAPIKeyProvider, filter)
 	})
+}
+
+func writeUsageOverviewComparisonsResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter, cpaAPIKeyProvider service.CPAAPIKeyProvider, keyViewer bool, viewerKey *entities.CPAAPIKey) {
+	comparisonProvider, ok := usageProvider.(service.UsageComparisonProvider)
+	if !ok {
+		c.JSON(http.StatusOK, usageOverviewComparisons{Models: []usageOverviewComparisonItem{}})
+		return
+	}
+	overview, err := comparisonProvider.GetUsageOverviewComparisons(c.Request.Context(), filter)
+	if err != nil {
+		writeUsageProviderError(c, "get usage overview comparisons failed", err)
+		return
+	}
+	apiKeyInfos, err := loadCPAAPIKeyInfos(c, cpaAPIKeyProvider)
+	if err != nil {
+		return
+	}
+	if keyViewer && viewerKey != nil && viewerKey.ID > 0 && viewerKey.APIKey != "" {
+		apiKeyInfos[viewerKey.APIKey] = analysisAPIKeyInfo{ID: strconv.FormatInt(viewerKey.ID, 10), Label: helper.CPAAPIKeyDisplayName(*viewerKey)}
+	}
+	comparisons := buildUsageOverviewComparisons(overview, apiKeyInfos)
+	if keyViewer {
+		comparisons.AuthFiles = nil
+		comparisons.AIProviders = nil
+	}
+	c.JSON(http.StatusOK, comparisons)
 }
 
 func writeUsageOverviewResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter) {
@@ -484,6 +500,7 @@ func buildUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, wind
 		return emptyUsageOverviewRealtime(window)
 	}
 	result := usageOverviewRealtime{
+		Insights:             mapUsageRealtimeInsights(realtime.Insights),
 		Window:               realtime.Window,
 		Timezone:             time.Local.String(),
 		BucketSeconds:        realtime.BucketSeconds,
@@ -548,6 +565,7 @@ func buildKeyUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, w
 		return emptyKeyUsageOverviewRealtime(window)
 	}
 	result := keyUsageOverviewRealtime{
+		Insights:             mapUsageRealtimeInsights(realtime.Insights),
 		Window:               realtime.Window,
 		Timezone:             time.Local.String(),
 		BucketSeconds:        realtime.BucketSeconds,
@@ -672,8 +690,12 @@ func mapUsageOverviewRealtimeTopItems(items []servicedto.RealtimeUsageTopItem, r
 func mapUsageOverviewRealtimeAPIKeyTopItems(items []servicedto.RealtimeUsageTopItem, apiKeyInfos map[string]analysisAPIKeyInfo) []usageOverviewRealtimeUsageTopItem {
 	result := make([]usageOverviewRealtimeUsageTopItem, 0, len(items))
 	for _, item := range items {
+		key := analysisAPIKeyResponseKey(item.Key, apiKeyInfos)
+		if _, ok := apiKeyInfos[item.Key]; !ok {
+			key = fmt.Sprintf("legacy:%x", sha256.Sum256([]byte(item.Key)))
+		}
 		result = append(result, usageOverviewRealtimeUsageTopItem{
-			Key:      analysisAPIKeyResponseKey(item.Key, apiKeyInfos),
+			Key:      key,
 			Label:    analysisAPIKeyLabel(item.Key, apiKeyInfos),
 			Tokens:   item.Tokens,
 			Requests: item.Requests,

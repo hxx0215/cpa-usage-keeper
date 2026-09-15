@@ -114,7 +114,7 @@ internal/repository/     SQLite persistence and aggregations
 internal/service/        Usage, pricing, and identity services
 internal/quota/          Provider quota refresh and inspection
 internal/benchmark/      Capacity suite, reports, manifests, and legacy microbenchmarks
-deploy/linux/            systemd service template
+deploy/                  Deployment templates
 web/                     React + TypeScript frontend
 ```
 
@@ -231,7 +231,7 @@ CPA data is stored under `./cpa`, and Keeper data is stored under `./keeper`.
 When CPA is already deployed, use the repository's Keeper-only Compose template:
 
 ```bash
-cp docker-compose.example.yml docker-compose.yml
+cp deploy/docker-compose.example.yml docker-compose.yml
 cp .env.example .env
 vim .env
 ```
@@ -404,6 +404,7 @@ Scheduled Auth Files quota refresh is configured from the gear button in the Aut
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `QUOTA_REFRESH_WORKER_LIMIT` | No | `10` | Maximum Auth Files quota refresh concurrency for manual and scheduled refresh, capped at `100` |
+| `QUOTA_UPSTREAM_RESPONSES_ENABLED` | No | `false` | Cache each credential's latest raw upstream quota responses and return them through quota task/cache APIs for browser Network debugging; responses may contain account data |
 
 ### Redis Queue Advanced Settings
 

@@ -18,6 +18,41 @@ describe('i18n resources', () => {
     }
   });
 
+  it('keeps the compact Request Events column labels aligned in Chinese and English', () => {
+    const keys = [
+      'request_events_timestamp',
+      'api_key_filter',
+      'request_events_source',
+      'model_name',
+      'reasoning_effort',
+      'speed_mode',
+      'request_events_result',
+      'request_events_request',
+      'request_events_latency',
+      'speed',
+      'request_events_tokens',
+      'request_events_cache',
+      'request_events_cost',
+      'credentials_detail_executor',
+      'client_ip',
+      'x_forwarded_for',
+      'user_agent',
+    ];
+    const labels = (language: string) => keys.map((key) => (
+      i18n.getResource(language, 'translation', `usage_stats.${key}`)
+    ));
+
+    expect(labels('en')).toEqual([
+      'Timestamp', 'API Key', 'Source', 'Model', 'Effort', 'Speed Mode', 'Result', 'Request',
+      'Latency', 'Speed', 'Tokens', 'Cache', 'Cost', 'Executor', 'Client IP', 'X-Forwarded-For',
+      'User Agent',
+    ]);
+    expect(labels('zh')).toEqual([
+      '时间', 'API Key', '来源', '模型', '推理强度', '速度模式', '结果', '请求', '延时', '生成速度',
+      'Token', '缓存', '成本', '执行器', '客户端 IP', 'X-Forwarded-For', '用户代理',
+    ]);
+  });
+
   it('localizes Token Activity and density labels in every supported language', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.token_activity_title')).toBe('Token Activity');
     expect(i18n.getResource('en', 'translation', 'usage_stats.token_activity_less')).toBe('Less');
@@ -56,6 +91,11 @@ describe('i18n resources', () => {
         session_settings_empty: '暂无有效会话。',
         session_settings_admin_label: '管理员会话',
         session_settings_type_admin: '管理员',
+        session_settings_alias_edit: '编辑会话别名',
+        session_settings_alias_placeholder: '会话别名',
+        session_settings_alias_save_success: '会话别名已保存。',
+        session_settings_alias_save_failed: '无法保存会话别名。',
+        session_settings_current: '正在使用',
         session_settings_logout_one: '退出此会话',
         session_settings_admin_logout_title: '退出管理员会话？',
         session_settings_admin_logout_body: '只会退出此管理员会话，其他管理员会话仍保持有效。',
@@ -71,6 +111,11 @@ describe('i18n resources', () => {
         session_settings_empty: '尚無有效工作階段。',
         session_settings_admin_label: '管理員工作階段',
         session_settings_type_admin: '管理員',
+        session_settings_alias_edit: '編輯工作階段別名',
+        session_settings_alias_placeholder: '工作階段別名',
+        session_settings_alias_save_success: '工作階段別名已儲存。',
+        session_settings_alias_save_failed: '無法儲存工作階段別名。',
+        session_settings_current: '使用中',
         session_settings_logout_one: '登出此工作階段',
         session_settings_admin_logout_title: '登出管理員工作階段？',
         session_settings_admin_logout_body: '僅會登出此管理員工作階段，其他管理員工作階段仍保持有效。',
@@ -97,8 +142,8 @@ describe('i18n resources', () => {
         overview_realtime_latency_empty: '暂无延迟样本',
         overview_realtime_tpm: 'Token/分钟',
         overview_realtime_rpm: '请求/分钟',
-        overview_realtime_tokens_label: 'Token 数',
-        avg_tokens: '平均 Token 数',
+        overview_realtime_tokens_label: 'Token',
+        avg_tokens: '平均 Token',
         analysis_model_efficiency_subtitle: '按模型比较每 1M 总 Token 的成本。',
         analysis_top_models_subtitle: '在所选时间范围内，比较各模型的总 Token 用量。',
         analysis_top_models_chart_aria: '各模型总 Token 用量随时间变化的堆叠图',
@@ -109,8 +154,8 @@ describe('i18n resources', () => {
         overview_realtime_latency_empty: '暫無延遲樣本',
         overview_realtime_tpm: 'Token/分鐘',
         overview_realtime_rpm: '請求/分鐘',
-        overview_realtime_tokens_label: 'Token 數',
-        avg_tokens: '平均 Token 數',
+        overview_realtime_tokens_label: 'Token',
+        avg_tokens: '平均 Token',
         analysis_model_efficiency_subtitle: '按模型比較每 1M 總 Token 的成本。',
         analysis_top_models_subtitle: '在所選時間範圍內，比較各模型的總 Token 用量。',
         analysis_top_models_chart_aria: '各模型總 Token 用量隨時間變化的堆疊圖',
@@ -150,6 +195,7 @@ describe('i18n resources', () => {
 
   it('keeps credential health chart labels available in every language', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_last_5h')).toBe('Last 5h');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_cache_rate_5h')).toBe('Cache rate 5h');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_ok')).toBe('OK');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_fail')).toBe('Fail');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_status_success')).toBe('healthy');
@@ -165,6 +211,7 @@ describe('i18n resources', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_grid_aria')).toBe('{{name}} request health over the last 5 hours');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_bucket_aria')).toBe('{{timeRange}}: {{status}}, {{successCount}} successful, {{failureCount}} failed, {{rate}}');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_last_5h')).toBe('最近 5 小时');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_cache_rate_5h')).toBe('近 5h 缓存率');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_status_warning')).toBe('部分失败');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_summary_healthy')).toBe('健康');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_summary_degraded')).toBe('波动');
@@ -172,6 +219,7 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_no_failures_5h')).toBe('5 小时内无失败');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_bucket_aria')).toBe('{{timeRange}}：{{status}}，成功 {{successCount}}，失败 {{failureCount}}，{{rate}}');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_last_5h')).toBe('最近 5 小時');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_cache_rate_5h')).toBe('近 5h 快取率');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_status_empty')).toBe('無資料');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_summary_healthy')).toBe('健康');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_summary_degraded')).toBe('波動');
@@ -207,10 +255,17 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.latency')).toBe('總延遲');
   });
 
-  it('describes request event speed using full output tokens', () => {
-    expect(i18n.getResource('en', 'translation', 'usage_stats.speed_hint')).toBe('Average output tokens per second after TTFT');
-    expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_hint')).toBe('首字后输出 token 的平均速度');
-    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_hint')).toBe('首字後輸出 token 的平均速度');
+  it('uses compact ms and s units for Chinese latency values', () => {
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.duration_unit_ms')).toBe('ms');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.duration_unit_s')).toBe('s');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.duration_unit_ms')).toBe('ms');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.duration_unit_s')).toBe('s');
+  });
+
+  it('describes request event speed using full output tokens and total latency', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.speed_hint')).toBe('Average output tokens per second over total latency');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_hint')).toBe('按总延迟计算的输出 Token 平均速度');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_hint')).toBe('按總延遲計算的輸出 Token 平均速度');
   });
 
   it('labels request event client metadata across languages', () => {
@@ -262,11 +317,8 @@ describe('i18n resources', () => {
   it('labels Analysis cost metrics', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.analysis_cost_per_million_tokens')).toBe('Cost / 1M Tokens');
     expect(i18n.getResource('en', 'translation', 'usage_stats.analysis_blended_rate')).toBe('Blended Rate');
-    expect(i18n.getResource('en', 'translation', 'usage_stats.analysis_cost_share')).toBe('Cost Share');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.analysis_blended_rate')).toBe('混合费率');
-    expect(i18n.getResource('zh', 'translation', 'usage_stats.analysis_cost_share')).toBe('成本占比');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.analysis_blended_rate')).toBe('混合費率');
-    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.analysis_cost_share')).toBe('成本占比');
   });
 
   it('removes obsolete Analysis API and model stats labels', () => {
@@ -295,6 +347,18 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.overview_realtime_section_title')).toBe('即時指標');
   });
 
+  it('localizes the realtime throughput chart and its request scope', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_throughput')).toBe('Throughput');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.overview_realtime_throughput')).toBe('吞吐量');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.overview_realtime_throughput')).toBe('吞吐量');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_throughput_empty')).toBe('No throughput data');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.overview_realtime_throughput_empty')).toBe('暂无吞吐数据');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.overview_realtime_throughput_empty')).toBe('暫無吞吐資料');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_throughput_hint')).toBe(
+      'Rates use rolling aggregation. Requests include successful and failed requests; tokens include successful requests with token usage.',
+    );
+  });
+
   it('localizes realtime overview sample and rolling hints', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_ttft_empty')).toBe('No TTFT samples');
     expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_latency_empty')).toBe('No latency samples');
@@ -317,12 +381,16 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.overview_realtime_trend')).toBe('趨勢');
   });
 
-  it('removes obsolete realtime response-level labels', () => {
+  it('removes obsolete realtime chart labels', () => {
     for (const language of SUPPORTED_LANGUAGES) {
       const usageStats = i18n.getResourceBundle(language, 'translation').usage_stats;
       expect(usageStats).not.toHaveProperty('overview_realtime_response_level');
       expect(usageStats).not.toHaveProperty('overview_realtime_ttft_p95');
       expect(usageStats).not.toHaveProperty('overview_realtime_latency_p95');
+      expect(usageStats).not.toHaveProperty('overview_realtime_token_velocity');
+      expect(usageStats).not.toHaveProperty('overview_realtime_request_level');
+      expect(usageStats).not.toHaveProperty('overview_realtime_token_empty');
+      expect(usageStats).not.toHaveProperty('overview_realtime_request_empty');
     }
   });
 

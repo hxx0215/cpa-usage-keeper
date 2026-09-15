@@ -223,6 +223,64 @@ export function IconDownload({ size = 20, ...props }: IconProps) {
   );
 }
 
+export function IconArrowDownToLine({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+    </svg>
+  );
+}
+
+export function IconArrowUpFromLine({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <path d="M12 21V9" />
+      <path d="m7 14 5-5 5 5" />
+    </svg>
+  );
+}
+
+export function IconBrain({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 0 0 8 21h4Z" />
+      <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 0 1 16 21h-4Z" />
+      <path d="M12 5v16" />
+      <path d="M9 8H7.5" />
+      <path d="M14.5 8H17" />
+      <path d="M9 12H7" />
+      <path d="M15 12h2" />
+      <path d="M9 16H7.5" />
+      <path d="M14.5 16H17" />
+    </svg>
+  );
+}
+
+export function IconDatabaseArrowDown({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <ellipse cx="9" cy="5" rx="6" ry="2.5" />
+      <path d="M3 5v8c0 1.38 2.69 2.5 6 2.5s6-1.12 6-2.5V5" />
+      <path d="M3 9c0 1.38 2.69 2.5 6 2.5 1.04 0 2.01-.11 2.84-.31" />
+      <path d="M19 9v10" />
+      <path d="m16 16 3 3 3-3" />
+    </svg>
+  );
+}
+
+export function IconDatabaseArrowUp({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <ellipse cx="9" cy="19" rx="6" ry="2.5" />
+      <path d="M3 19v-8c0-1.38 2.69-2.5 6-2.5s6 1.12 6 2.5v8" />
+      <path d="M3 15c0-1.38 2.69-2.5 6-2.5 1.04 0 2.01.11 2.84.31" />
+      <path d="M19 15V5" />
+      <path d="m16 8 3-3 3 3" />
+    </svg>
+  );
+}
+
 export function IconCopy({ size = 20, ...props }: IconProps) {
   return (
     <svg {...baseSvgProps} width={size} height={size} {...props}>
@@ -260,10 +318,61 @@ export function IconChevronDown({ size = 20, ...props }: IconProps) {
   );
 }
 
+export function IconSunMoon({ size = 20, ...props }: IconProps) {
+  return <svg {...baseSvgProps} width={size} height={size} {...props}>
+    <path d="M12 3a7.5 7.5 0 1 0 9 9 6 6 0 0 1-9-9Z" />
+    <path d="M19 3v2M21 8h2M16 1v2M22 2l-1 1" />
+  </svg>;
+}
+
+export function IconSun({ size = 20, ...props }: IconProps) {
+  return <svg {...baseSvgProps} width={size} height={size} {...props}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42m0-14.14-1.42 1.42M6.35 17.65l-1.42 1.42" />
+  </svg>;
+}
+
+export function IconMoon({ size = 20, ...props }: IconProps) {
+  return <svg {...baseSvgProps} width={size} height={size} {...props}>
+    <path d="M20.9 13a9 9 0 0 1-9.9-9.9A9 9 0 1 0 20.9 13Z" />
+  </svg>;
+}
+
+export function IconMonitor({ size = 20, ...props }: IconProps) {
+  return <svg {...baseSvgProps} width={size} height={size} {...props}>
+    <rect x="3" y="3" width="18" height="13" rx="2" />
+    <path d="M12 16v5m-4 0h8" />
+  </svg>;
+}
+
+export function IconMoreHorizontal({ size = 20, ...props }: IconProps) {
+  return <svg {...baseSvgProps} width={size} height={size} {...props}>
+    <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+    <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
+  </svg>;
+}
+
 export function IconChevronLeft({ size = 20, ...props }: IconProps) {
   return (
     <svg {...baseSvgProps} width={size} height={size} {...props}>
       <path d="m15 18-6-6 6-6" />
+    </svg>
+  );
+}
+
+export function IconChevronsLeft({ size = 20, ...props }: IconProps) {
+  return <svg {...baseSvgProps} width={size} height={size} {...props}><path d="m11 17-5-5 5-5m7 10-5-5 5-5" /></svg>;
+}
+
+export function IconChevronsRight({ size = 20, ...props }: IconProps) {
+  return <svg {...baseSvgProps} width={size} height={size} {...props}><path d="m6 17 5-5-5-5m7 10 5-5-5-5" /></svg>;
+}
+
+export function IconChevronRight({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <path d="m9 18 6-6-6-6" />
     </svg>
   );
 }

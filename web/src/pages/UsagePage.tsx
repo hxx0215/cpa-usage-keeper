@@ -1,7 +1,9 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
+import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
+import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentity, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
+import { DEFAULT_USAGE_TAB, getUsageTabPath, handleUsageTabKeyActivation, resolveInitialUsageTab, shouldHandleUsageNavigation, USAGE_TAB_OPTIONS, type UsageTab } from '@/lib/usageNavigation';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
@@ -9,6 +11,8 @@ import { Button } from '@/components/ui/Button';
 import { MainActionButton } from '@/components/ui/MainActionButton';
 import { Modal } from '@/components/ui/Modal';
 import { IconRefreshCw } from '@/components/ui/icons';
+import { updateCredentialDetailStats } from '@/components/usage/credentials/credentialViewModels';
+import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS } from '@/components/usage/credentials/useCredentialPages';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useThemeStore } from '@/stores';
@@ -22,20 +26,24 @@ import {
   PriceSettingsCard,
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
+  CredentialDetailDrawer,
   CredentialProviderFilterBar,
   TimeRangeControl,
   useUsageData,
+  useUsageComparisonsData,
   useRecentActivityWindow,
   useUsageActivityData,
   useOverviewRealtimeData,
   usePricingData,
   useSparklines,
-  useCredentialsTabData
+  useCredentialsTabData,
+  type CredentialDetailSelection,
 } from '@/components/usage';
 import {
   RequestEventsDetailsCard,
   REQUEST_EVENT_COLUMN_IDS,
   normalizeRequestEventColumnOrder,
+  normalizeRequestEventVisibleColumnIds,
   type RequestEventColumnId,
 } from '@/components/usage/RequestEventsDetailsCard';
 import { clampCustomRangeToCurrentBounds, clampStoredUsageRangeStateToCurrentBounds, parseLegacyCustomRange, parseStoredUsageRangeState, resolveUsageRangeRecoveryTimeZone, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
@@ -43,12 +51,15 @@ import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import { getDailyAverageCardUsage, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
 import { BrandLink } from '@/components/BrandLink';
-import { isCPAMCEmbed } from '@/embed/cpamcEmbed';
+import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
+import { DashboardToolbar } from '@/components/dashboard/DashboardToolbar';
+import { cpamcEmbedSearch, isCPAMCEmbed } from '@/embed/cpamcEmbed';
 import styles from './UsagePage.module.scss';
 
 const TIME_RANGE_STORAGE_KEY = 'cli-proxy-usage-time-range-v1';
 const LEGACY_CUSTOM_RANGE_STORAGE_KEY = 'cli-proxy-usage-custom-range-v1';
 const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-window-v1';
+const API_KEY_FILTER_STORAGE_KEY = 'cli-proxy-usage-api-key-filter-v1';
 export const REQUEST_EVENTS_PREFERENCES_STORAGE_KEY = 'cli-proxy-usage-request-events-preferences-v1';
 const DEFAULT_TIME_RANGE: UsageTimeRange = 'today';
 const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
@@ -57,23 +68,21 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'auth-files', 'ai-provider', 'settings'] as const;
-type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   overview: 'usage_stats.tab_overview',
+  realtime: 'usage_stats.tab_realtime',
   analysis: 'usage_stats.tab_analysis',
   events: 'usage_stats.tab_events',
   'auth-files': 'usage_stats.tab_auth_files',
   'ai-provider': 'usage_stats.tab_ai_provider',
   settings: 'usage_stats.tab_settings',
 };
-const DEFAULT_USAGE_TAB: UsageTab = 'overview';
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 50;
 const REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS = 90;
-// v7 是完整列顺序格式；v8 加入客户端请求元数据列，并保留历史自定义顺序。
-const REQUEST_EVENTS_PREFERENCES_VERSION = 8;
+// v9 将强关联字段折叠为组合列，并加入 Executor；旧版本直接重置列设置以避免错误折叠。
+const REQUEST_EVENTS_PREFERENCES_VERSION = 9;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 const CPA_MANAGEMENT_PAGE = 'management.html';
@@ -124,9 +133,38 @@ export const getCredentialSectionVisibility = (tab: UsageTab) => ({
   showAiProvider: tab === 'ai-provider',
 });
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'realtime' && tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
 
-export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
+export const shouldShowApiKeyFilter = (tab: UsageTab) => tab === 'realtime' || shouldShowRangeControls(tab);
+
+// 恢复出来的 API Key 筛选只有在选项成功加载后才能判定失效；加载中或加载失败时保留选择，避免被空列表误清。
+export const shouldResetSelectedApiKeyFilter = (
+  selectedApiKeyId: string,
+  apiKeyOptions: ReadonlyArray<Pick<CpaApiKeyOption, 'id'>>,
+  apiKeyOptionsLoaded: boolean,
+) => (
+  apiKeyOptionsLoaded
+  && selectedApiKeyId !== ''
+  && !apiKeyOptions.some((option) => option.id === selectedApiKeyId)
+);
+
+export const resolveApiKeyFilterRequestState = (
+  selectedApiKeyId: string,
+  apiKeyOptions: ReadonlyArray<Pick<CpaApiKeyOption, 'id'>>,
+  apiKeyOptionsLoaded: boolean,
+  apiKeyOptionsResolved: boolean,
+): { ready: boolean; apiKeyId: string } => {
+  if (selectedApiKeyId === '') {
+    return { ready: true, apiKeyId: '' };
+  }
+  if (!apiKeyOptionsResolved) {
+    return { ready: false, apiKeyId: '' };
+  }
+  if (apiKeyOptionsLoaded && !apiKeyOptions.some((option) => option.id === selectedApiKeyId)) {
+    return { ready: true, apiKeyId: '' };
+  }
+  return { ready: true, apiKeyId: selectedApiKeyId };
+};
 
 export const shouldShowUpdateCheckButton = (versionInfo: Pick<VersionResponse, 'updateCheckEnabled'> | null) => versionInfo?.updateCheckEnabled === true;
 
@@ -189,7 +227,7 @@ export const shouldAutoRefreshUsageTab = ({
   activeTab: UsageTab;
   eventsPage: number;
 }) => {
-  if (activeTab === 'overview') return true;
+  if (activeTab === 'overview' || activeTab === 'realtime') return true;
   if (activeTab === 'events') return eventsPage === 1;
   return false;
 };
@@ -269,169 +307,6 @@ const buildDefaultRequestEventsPreferences = (): RequestEventsPreferences => ({
   columnOrder: [...REQUEST_EVENT_COLUMN_IDS],
 });
 
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V3 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V4 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cache_read_tokens',
-  'cache_creation_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V7 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cache_read_tokens',
-  'cache_creation_tokens',
-  'cache_read_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V5 = LEGACY_REQUEST_EVENT_COLUMN_IDS_V7;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V6 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'service_tier',
-  'response_service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cache_read_tokens',
-  'cache_creation_tokens',
-  'cache_read_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V2 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V1 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'reasoning_effort',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V1_WITH_MODEL_ALIAS = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
 );
@@ -449,8 +324,9 @@ const normalizeRequestEventResultFilter = (value: unknown): string => (
   value === 'success' || value === 'failed' ? value : ALL_REQUEST_EVENTS_FILTER
 );
 
-const normalizeRequestEventPreferenceFilters = (value: unknown): RequestEventFilterState => {
+const normalizeRequestEventPreferenceFilters = (value: unknown): RequestEventsPreferences['filters'] => {
   const filters = isRecord(value) ? value : {};
+  // 只恢复仍支持的列表筛选；旧 apiKeyId 不再参与查询，也不覆盖顶部选择。
   return {
     model: normalizeRequestEventFilterValue(filters.model),
     source: normalizeRequestEventFilterValue(filters.source),
@@ -458,69 +334,32 @@ const normalizeRequestEventPreferenceFilters = (value: unknown): RequestEventFil
   };
 };
 
-const hasSameRequestEventColumnOrder = (
-  left: readonly string[],
-  right: readonly string[]
-): boolean => left.length === right.length && left.every((columnId, index) => columnId === right[index]);
-
-const migrateRequestEventColumnId = (value: unknown): RequestEventColumnId | null => {
-  if (value === 'cached_tokens') return 'cache_read_tokens';
-  if (value === 'cache_rate') return 'cache_read_rate';
-  if (value === 'response_service_tier') return 'service_tier';
-  return isRequestEventColumnId(value) ? value : null;
-};
-
-const normalizeRequestEventPreferenceColumnIds = (value: unknown, version: unknown): RequestEventColumnId[] => {
+const normalizeRequestEventPreferenceColumnIds = (value: unknown): RequestEventColumnId[] => {
   if (!Array.isArray(value)) {
     return [...REQUEST_EVENT_COLUMN_IDS];
   }
-
-  const rawColumnIds = value.filter((columnId): columnId is string => typeof columnId === 'string');
-  const legacyFullSelection = version !== REQUEST_EVENTS_PREFERENCES_VERSION && (
-    (version === 7 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V7)) ||
-    (version === 6 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V6)) ||
-    (version === 5 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V5)) ||
-    (version === 4 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V4)) ||
-    (version === 3 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V3)) ||
-    (version === 2 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V2)) ||
-    (typeof version === 'number' && version < 2 && (
-      hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V1) ||
-      hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V1_WITH_MODEL_ALIAS)
-    ))
-  );
-  if (legacyFullSelection) {
-    return [...REQUEST_EVENT_COLUMN_IDS];
-  }
-
-  const seen = new Set<RequestEventColumnId>();
-  const normalized: RequestEventColumnId[] = [];
-  for (const rawColumnId of rawColumnIds) {
-    const columnId = migrateRequestEventColumnId(rawColumnId);
-    if (columnId === null || seen.has(columnId)) continue;
-    seen.add(columnId);
-    normalized.push(columnId);
-  }
-  return normalized.length > 0 ? normalized : [...REQUEST_EVENT_COLUMN_IDS];
+  return normalizeRequestEventVisibleColumnIds(value.filter(isRequestEventColumnId));
 };
 
-const normalizeRequestEventPreferenceColumnOrder = (value: unknown, version: unknown): RequestEventColumnId[] => {
+const normalizeRequestEventPreferenceColumnOrder = (value: unknown): RequestEventColumnId[] => {
   if (!Array.isArray(value)) {
     return [...REQUEST_EVENT_COLUMN_IDS];
   }
-  const rawColumnIds = value.filter((columnId): columnId is string => typeof columnId === 'string');
-  if (version === 7 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V7)) {
-    return [...REQUEST_EVENT_COLUMN_IDS];
-  }
-  return normalizeRequestEventColumnOrder(rawColumnIds.filter(isRequestEventColumnId));
+  return normalizeRequestEventColumnOrder(value.filter(isRequestEventColumnId));
 };
 
 export const normalizeRequestEventsPreferences = (value: unknown): RequestEventsPreferences => {
   const preferences = isRecord(value) ? value : {};
+  const hasCurrentColumnSettings = preferences.version === REQUEST_EVENTS_PREFERENCES_VERSION;
   return {
     version: REQUEST_EVENTS_PREFERENCES_VERSION,
     filters: normalizeRequestEventPreferenceFilters(preferences.filters),
-    visibleColumnIds: normalizeRequestEventPreferenceColumnIds(preferences.visibleColumnIds, preferences.version),
-    columnOrder: normalizeRequestEventPreferenceColumnOrder(preferences.columnOrder, preferences.version),
+    visibleColumnIds: hasCurrentColumnSettings
+      ? normalizeRequestEventPreferenceColumnIds(preferences.visibleColumnIds)
+      : [...REQUEST_EVENT_COLUMN_IDS],
+    columnOrder: hasCurrentColumnSettings
+      ? normalizeRequestEventPreferenceColumnOrder(preferences.columnOrder)
+      : [...REQUEST_EVENT_COLUMN_IDS],
   };
 };
 
@@ -798,15 +637,7 @@ const loadTimeRange = (): LoadedUsageRangeState => loadUsageRangeState(
   typeof localStorage === 'undefined' ? undefined : localStorage,
 );
 
-const isUsageTab = (value: unknown): value is UsageTab =>
-  typeof value === 'string' && USAGE_TAB_OPTIONS.includes(value as UsageTab);
-
-export const normalizeUsageTabValue = (value: unknown): UsageTab | null => {
-  if (value === 'credentials') {
-    return 'auth-files';
-  }
-  return isUsageTab(value) ? value : null;
-};
+export { normalizeUsageTabValue } from '@/lib/usageNavigation';
 
 export const getUsageTabOptions = (
   translate: Translate,
@@ -817,15 +648,18 @@ export const getUsageTabOptions = (
   }));
 
 const loadUsageTab = (): UsageTab => {
+  let storedTab: unknown = null;
   try {
-    if (typeof localStorage === 'undefined') {
-      return DEFAULT_USAGE_TAB;
-    }
-    const raw = localStorage.getItem(USAGE_TAB_STORAGE_KEY);
-    return normalizeUsageTabValue(raw) ?? DEFAULT_USAGE_TAB;
+    if (typeof localStorage !== 'undefined') storedTab = localStorage.getItem(USAGE_TAB_STORAGE_KEY);
   } catch {
-    return DEFAULT_USAGE_TAB;
+    // 忽略存储异常；直达路由不依赖 localStorage 仍可工作。
   }
+
+  return resolveInitialUsageTab(
+    typeof window === 'undefined' ? '/' : window.location.pathname,
+    typeof window === 'undefined' ? undefined : window.__APP_BASE_PATH__,
+    storedTab,
+  );
 };
 
 const isOverviewRealtimeWindow = (value: unknown): value is OverviewRealtimeWindow => (
@@ -841,6 +675,32 @@ const loadRealtimeWindow = (): OverviewRealtimeWindow => {
     return isOverviewRealtimeWindow(raw) ? raw : DEFAULT_REALTIME_WINDOW;
   } catch {
     return DEFAULT_REALTIME_WINDOW;
+  }
+};
+
+export const API_KEY_FILTER_MAX_LENGTH = 19;
+const MAX_API_KEY_FILTER_ID = 9223372036854775807n;
+
+export const normalizeStoredApiKeyFilter = (value: unknown): string => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const normalized = value.trim();
+  if (!/^\d{1,19}$/.test(normalized)) {
+    return '';
+  }
+  const id = BigInt(normalized);
+  return id > 0n && id <= MAX_API_KEY_FILTER_ID ? id.toString() : '';
+};
+
+const loadSelectedApiKeyId = (): string => {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return '';
+    }
+    return normalizeStoredApiKeyFilter(localStorage.getItem(API_KEY_FILTER_STORAGE_KEY));
+  } catch {
+    return '';
   }
 };
 
@@ -874,13 +734,34 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const setTheme = useThemeStore((state) => state.setTheme);
   const isDark = resolvedTheme === 'dark';
   const [activeTab, setActiveTab] = useState<UsageTab>(() => loadUsageTab());
+  const activateUsageTab = useCallback((tab: UsageTab) => {
+    setActiveTab(tab);
+    window.history.replaceState(null, '', appPath(getUsageTabPath(tab)) + cpamcEmbedSearch());
+  }, []);
+  const handleUsageTabNavigation = useCallback((event: ReactMouseEvent<HTMLAnchorElement>, tab: UsageTab) => {
+    // 普通左键保持现有无刷新切换；组合键和中键交给原生链接打开新页面。
+    if (!shouldHandleUsageNavigation(event.nativeEvent)) return;
+
+    event.preventDefault();
+    activateUsageTab(tab);
+  }, [activateUsageTab]);
   const [loadedTimeRange] = useState(loadTimeRange);
   const pendingLegacyCustomRangeRef = useRef(loadedTimeRange.pendingLegacyCustomRange);
   const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadedTimeRange.state);
   const { range: timeRange, customRange } = timeRangeState;
   const [realtimeWindow, setRealtimeWindow] = useState<OverviewRealtimeWindow>(loadRealtimeWindow);
-  const [selectedApiKeyId, setSelectedApiKeyId] = useState('');
+  const [selectedApiKeyId, setSelectedApiKeyId] = useState(loadSelectedApiKeyId);
   const [apiKeyOptions, setApiKeyOptions] = useState<CpaApiKeyOption[]>([]);
+  const [apiKeyOptionsLoaded, setApiKeyOptionsLoaded] = useState(false);
+  const [apiKeyOptionsResolved, setApiKeyOptionsResolved] = useState(false);
+  const apiKeyFilterRequestState = resolveApiKeyFilterRequestState(
+    selectedApiKeyId,
+    apiKeyOptions,
+    apiKeyOptionsLoaded,
+    apiKeyOptionsResolved,
+  );
+  const apiKeyFilterReady = apiKeyFilterRequestState.ready;
+  const requestApiKeyId = apiKeyFilterRequestState.apiKeyId;
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [versionInfo, setVersionInfo] = useState<VersionResponse | null>(null);
   const apiKeyOptionsRequestControllerRef = useRef<AbortController | null>(null);
@@ -926,9 +807,24 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     customUnit: customRange?.unit,
     customStart: customRange?.start,
     customEnd: customRange?.end,
-    enabled: activeTab === 'overview',
-    apiKeyId: selectedApiKeyId,
+    enabled: activeTab === 'overview' && apiKeyFilterReady,
+    apiKeyId: requestApiKeyId,
     onRangeBoundsConflict: recoverRangeBoundsConflict,
+  });
+  const {
+    comparisons: overviewComparisons,
+    loading: comparisonsLoading,
+    error: comparisonsError,
+    loadComparisons,
+  } = useUsageComparisonsData({
+    onAuthRequired,
+    onRangeBoundsConflict: recoverRangeBoundsConflict,
+    enabled: activeTab === 'overview' && usageRangeQuery.valid && apiKeyFilterReady,
+    apiKeyId: requestApiKeyId,
+    range: timeRange,
+    customUnit: activeCustomRange?.unit,
+    customStart: activeCustomRange?.start,
+    customEnd: activeCustomRange?.end,
   });
   const {
     activity,
@@ -940,8 +836,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   } = useUsageActivityData({
     viewer: 'admin',
     request: activityRangeRequest,
-    apiKeyId: selectedApiKeyId,
-    enabled: activeTab === 'overview' && usageRangeQuery.valid,
+    apiKeyId: requestApiKeyId,
+    enabled: activeTab === 'overview' && usageRangeQuery.valid && apiKeyFilterReady,
     onAuthRequired,
   });
   const activityWindow = manualActivityWindow ?? activity?.window ?? null;
@@ -967,8 +863,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     loadRealtime
   } = useOverviewRealtimeData({
     onAuthRequired,
-    enabled: activeTab === 'overview',
-    apiKeyId: selectedApiKeyId,
+    enabled: activeTab === 'realtime' && apiKeyFilterReady,
+    apiKeyId: requestApiKeyId,
     realtimeWindow,
   });
   const {
@@ -996,6 +892,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [authSessionsLoading, setAuthSessionsLoading] = useState(false);
   const [authSessionsError, setAuthSessionsError] = useState('');
   const [authSessionRevokingId, setAuthSessionRevokingId] = useState<string | null>(null);
+  const [authSessionAliasSavingId, setAuthSessionAliasSavingId] = useState<string | null>(null);
   const authSessionsRequestControllerRef = useRef<AbortController | null>(null);
   const [statusError, setStatusError] = useState('');
   const [updateCheckLoading, setUpdateCheckLoading] = useState(false);
@@ -1023,6 +920,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsColumnOrder, setEventsColumnOrder] = useState<RequestEventColumnId[]>(initialRequestEventsPreferences.columnOrder);
   const [eventsExportingFormat, setEventsExportingFormat] = useState<UsageEventsExportFormat | null>(null);
   const [eventsFilterOptionsLoaded, setEventsFilterOptionsLoaded] = useState(false);
+  const [credentialDetailSelection, setCredentialDetailSelection] = useState<CredentialDetailSelection | null>(null);
+  const [credentialDetailOpen, setCredentialDetailOpen] = useState(false);
+  const credentialDetailRequestRef = useRef<{ id: string; controller: AbortController } | null>(null);
   const [requestLogResponse, setRequestLogResponse] = useState<UsageEventRequestLogResponse | null>(null);
   const [requestLogError, setRequestLogError] = useState('');
   const [requestLogLoadingEventId, setRequestLogLoadingEventId] = useState<string | null>(null);
@@ -1098,18 +998,23 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     apiKeyOptionsRequestControllerRef.current?.abort();
     const controller = new AbortController();
     apiKeyOptionsRequestControllerRef.current = controller;
+    setApiKeyOptionsLoaded(false);
+    setApiKeyOptionsResolved(false);
     try {
       const response = await fetchCpaApiKeyOptions(controller.signal);
       if (apiKeyOptionsRequestControllerRef.current !== controller) {
         return;
       }
       setApiKeyOptions(response.options ?? []);
+      setApiKeyOptionsLoaded(true);
+      setApiKeyOptionsResolved(true);
     } catch (error) {
       if (controller.signal.aborted) {
         return;
       }
       if (apiKeyOptionsRequestControllerRef.current === controller) {
         setApiKeyOptions([]);
+        setApiKeyOptionsResolved(true);
       }
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
@@ -1230,8 +1135,28 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [loadAuthSessions, onAuthRequired, showTopNotice, t]);
 
+  const handleSaveAuthSessionAlias = useCallback(async (id: string, alias: string) => {
+    setAuthSessionAliasSavingId(id);
+    setAuthSessionsError('');
+    try {
+      const updated = await updateAuthSessionAlias(id, alias);
+      setAuthSessions((current) => current.map((session) => (session.id === updated.id ? { ...session, ...updated } : session)));
+      showTopNotice('success', t('usage_stats.session_settings_alias_save_success'));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+      } else {
+        setAuthSessionsError(error instanceof Error ? error.message : 'Failed to update auth session alias');
+        showTopNotice('error', t('usage_stats.session_settings_alias_save_failed'));
+      }
+      throw error;
+    } finally {
+      setAuthSessionAliasSavingId((current) => (current === id ? null : current));
+    }
+  }, [onAuthRequired, showTopNotice, t]);
+
   const loadAnalysis = useCallback(async () => {
-    if (!usageRangeQuery.valid) return;
+    if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
     analysisRequestControllerRef.current?.abort();
     const controller = new AbortController();
     analysisRequestControllerRef.current = controller;
@@ -1244,8 +1169,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setAnalysisLatencyData(null);
 
     await loadAnalysisSections({
-      loadCore: () => fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId),
-      loadLatency: () => fetchAnalysisLatency(usageRangeQuery, controller.signal, selectedApiKeyId),
+      loadCore: () => fetchAnalysis(usageRangeQuery, controller.signal, requestApiKeyId),
+      loadLatency: () => fetchAnalysisLatency(usageRangeQuery, controller.signal, requestApiKeyId),
       onCoreLoaded: (response) => {
         if (analysisRequestControllerRef.current !== controller) return;
         setAnalysisData(response);
@@ -1283,7 +1208,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (analysisRequestControllerRef.current === controller) {
       analysisRequestControllerRef.current = null;
     }
-  }, [onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
+  }, [apiKeyFilterReady, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, usageRangeQuery]);
 
   useEffect(() => {
     try {
@@ -1335,6 +1260,17 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [activeTab]);
 
   useEffect(() => {
+    try {
+      if (typeof localStorage === 'undefined') {
+        return;
+      }
+      localStorage.setItem(API_KEY_FILTER_STORAGE_KEY, selectedApiKeyId);
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [selectedApiKeyId]);
+
+  useEffect(() => {
     saveRequestEventsPreferences({
       version: REQUEST_EVENTS_PREFERENCES_VERSION,
       filters: {
@@ -1346,10 +1282,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       columnOrder: eventsColumnOrder,
     });
   }, [eventsColumnOrder, eventsModelFilter, eventsResultFilter, eventsSourceFilter, eventsVisibleColumnIds]);
-
-  useEffect(() => {
-    setEventsPage(1);
-  }, [selectedApiKeyId, usageRangeQuery]);
 
   useEffect(() => {
     // Credentials 列表、quota cache 和 task polling 都跟页面可见性绑定，隐藏页不保持刷新或轮询。
@@ -1405,10 +1337,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [loadApiKeyOptions]);
 
   useEffect(() => {
-    if (selectedApiKeyId && !apiKeyOptions.some((option) => option.id === selectedApiKeyId)) {
+    if (shouldResetSelectedApiKeyFilter(selectedApiKeyId, apiKeyOptions, apiKeyOptionsLoaded)) {
       setSelectedApiKeyId('');
     }
-  }, [apiKeyOptions, selectedApiKeyId]);
+  }, [apiKeyOptions, apiKeyOptionsLoaded, selectedApiKeyId]);
 
   useEffect(() => {
     if (!shouldShowUpdateCheckButton(versionInfo)) {
@@ -1460,7 +1392,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired]);
 
   const loadEvents = useCallback(async () => {
-    if (!usageRangeQuery.valid) return;
+    if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
     eventsRequestControllerRef.current?.abort();
     eventsLoadMoreRequestControllerRef.current?.abort();
     eventsLoadMoreRequestControllerRef.current = null;
@@ -1478,7 +1410,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
-        apiKeyId: selectedApiKeyId,
+        apiKeyId: requestApiKeyId,
       });
       if (eventsRequestControllerRef.current !== controller) {
         return;
@@ -1508,12 +1440,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         eventsRequestControllerRef.current = null;
       }
     }
-  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
+  }, [apiKeyFilterReady, eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, usageRangeQuery]);
 
   const loadMoreEvents = useCallback(async () => {
     const cursor = eventsNextCursor?.trim();
     if (!cursor || !eventsHasMore || eventsLoadMoreRequestControllerRef.current) return;
-    if (!usageRangeQuery.valid) return;
+    if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
 
     const controller = new AbortController();
     eventsLoadMoreRequestControllerRef.current = controller;
@@ -1527,7 +1459,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
-        apiKeyId: selectedApiKeyId,
+        apiKeyId: requestApiKeyId,
       });
       if (eventsLoadMoreRequestControllerRef.current !== controller) return;
       setEventsAutoLoadMore(true);
@@ -1552,7 +1484,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         setEventsLoadingMore(false);
       }
     }
-  }, [eventsHasMore, eventsModelFilter, eventsNextCursor, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
+  }, [apiKeyFilterReady, eventsHasMore, eventsModelFilter, eventsNextCursor, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, usageRangeQuery]);
 
   const resetEventsPage = useCallback(() => {
     eventsLoadMoreRequestControllerRef.current?.abort();
@@ -1563,6 +1495,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setEventsPage(1);
   }, []);
 
+  useEffect(() => {
+    // 顶部 Key 和时间范围共同限定列表；切换时立即丢弃旧游标，查询 effect 负责取消旧请求。
+    resetEventsPage();
+  }, [resetEventsPage, selectedApiKeyId, usageRangeQuery]);
 
   const handleEventsModelFilterChange = useCallback((model: string) => {
     setEventsModelFilter(model);
@@ -1580,14 +1516,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [resetEventsPage]);
 
   const handleEventsExport = useCallback(async (format: UsageEventsExportFormat) => {
-    if (!usageRangeQuery.valid) return;
+    if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
     setEventsExportingFormat(format);
     try {
       const file = await exportUsageEvents(usageRangeQuery, format, {
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
-        apiKeyId: selectedApiKeyId,
+        apiKeyId: requestApiKeyId,
       });
       triggerBrowserFileDownload(file.blob, file.filename);
       showTopNotice('success', t('usage_stats.export_success'));
@@ -1605,7 +1541,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     } finally {
       setEventsExportingFormat(null);
     }
-  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, showTopNotice, t, usageRangeQuery]);
+  }, [apiKeyFilterReady, eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, showTopNotice, t, usageRangeQuery]);
 
   const handleRequestLogOpen = useCallback(async (event: UsageEvent) => {
     if (!requestLogAccessEnabled) return;
@@ -1655,6 +1591,68 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setRequestLogDownloading(false);
   }, []);
 
+  const handleCredentialDetailClose = useCallback(() => {
+    handleRequestLogClose();
+    setCredentialDetailOpen(false);
+  }, [handleRequestLogClose]);
+
+  const handleCredentialDetailOpen = useCallback((selection: CredentialDetailSelection) => {
+    setCredentialDetailSelection(selection);
+    setCredentialDetailOpen(true);
+  }, []);
+
+  const credentialDetailID = credentialDetailSelection?.row.identity.id;
+  const refreshCredentialDetail = useCallback(async () => {
+    if (!credentialDetailOpen || !credentialDetailID) return;
+    credentialDetailRequestRef.current?.controller.abort();
+    const request = { id: credentialDetailID, controller: new AbortController() };
+    credentialDetailRequestRef.current = request;
+    try {
+      const updated = await fetchUsageIdentity(request.id, request.controller.signal);
+      if (credentialDetailRequestRef.current !== request) return;
+      setCredentialDetailSelection((current) => current?.row.identity.id === request.id ? updateCredentialDetailStats(current, updated) : current);
+    } catch (error) {
+      if (credentialDetailRequestRef.current !== request) return;
+      // 自动刷新失败保留最后一次成功的统计，下次轮询继续尝试。
+      if (error instanceof ApiError && error.status === 401) onAuthRequired?.();
+    } finally {
+      if (credentialDetailRequestRef.current === request) credentialDetailRequestRef.current = null;
+    }
+  }, [credentialDetailID, credentialDetailOpen, onAuthRequired]);
+
+  useEffect(() => {
+    if (!credentialDetailOpen) return;
+    // 详情按稳定 ID 独立刷新，凭证因重置移出当前分页后仍能观察新增用量。
+    void refreshCredentialDetail();
+    const interval = window.setInterval(() => { void refreshCredentialDetail(); }, CREDENTIAL_PAGES_REFRESH_INTERVAL_MS);
+    return () => {
+      window.clearInterval(interval);
+      credentialDetailRequestRef.current?.controller.abort();
+      credentialDetailRequestRef.current = null;
+    };
+  }, [credentialDetailOpen, refreshCredentialDetail]);
+
+  const handleCredentialStatsReset = useCallback(async (id: string) => {
+    const updated = await credentialsData.resetUsageIdentityStats(id);
+    // 重置结果应用前使旧详情请求失效，避免较晚返回的旧基线覆盖新周期。
+    if (credentialDetailRequestRef.current?.id === id) {
+      credentialDetailRequestRef.current.controller.abort();
+      credentialDetailRequestRef.current = null;
+    }
+    setCredentialDetailSelection((current) => current?.row.identity.id === id ? updateCredentialDetailStats(current, updated) : current);
+  }, [credentialsData]);
+
+  const currentCredentialDetailSelection = useMemo<CredentialDetailSelection | null>(() => {
+    if (!credentialDetailSelection) return null;
+    const id = credentialDetailSelection.row.identity.id;
+    if (credentialDetailSelection.kind === 'auth-file') {
+      const row = credentialsData.authFileRows.find((item) => item.identity.id === id);
+      return row ? updateCredentialDetailStats({ kind: 'auth-file', row }, credentialDetailSelection.row.identity) : credentialDetailSelection;
+    }
+    const row = credentialsData.aiProviderRows.find((item) => item.identity.id === id);
+    return row ? updateCredentialDetailStats({ kind: 'ai-provider', row }, credentialDetailSelection.row.identity) : credentialDetailSelection;
+  }, [credentialDetailSelection, credentialsData.authFileRows, credentialsData.aiProviderRows]);
+
   const handleRequestLogDownload = useCallback(async (eventId: string) => {
     if (!requestLogAccessEnabled) return;
     requestLogDownloadGenerationRef.current += 1;
@@ -1673,12 +1671,17 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired, requestLogAccessEnabled, showTopNotice, t]);
 
   const refreshActiveTab = useCallback(async () => {
+    if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
+    if (activeTab === 'realtime') {
+      await loadRealtime();
+      return;
+    }
     if (activeTab === 'events') {
       await Promise.all([loadEventFilterOptions(), loadEvents()]);
       return;
     }
     if (credentialSectionVisibility.enabled) {
-      await refreshCredentials();
+      await Promise.all([refreshCredentials(), refreshCredentialDetail()]);
       return;
     }
     if (activeTab === 'analysis') {
@@ -1689,10 +1692,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await Promise.all([loadAuthSessions(), loadApiKeySettings(), loadPricing()]);
       return;
     }
-    await Promise.all([loadUsage(), loadActivity(), loadRealtime()]);
-  }, [activeTab, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentials]);
+    await Promise.all([loadUsage(), loadActivity(), loadComparisons()]);
+  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadComparisons, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentialDetail, refreshCredentials]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
+    if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
+    if (activeTab === 'realtime') {
+      await loadRealtime();
+      return;
+    }
     if (activeTab === 'events') {
       await loadEvents();
       return;
@@ -1701,8 +1709,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await refreshCredentials();
       return;
     }
-    await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadRealtime()]);
-  }, [activeTab, credentialSectionVisibility.enabled, loadActivity, loadEvents, loadRealtime, loadUsage, refreshCredentials]);
+    await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadComparisons({ skipIfInFlight: true })]);
+  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadComparisons, loadEvents, loadRealtime, loadUsage, refreshCredentials]);
 
   const handleAutoRefreshError = useCallback((error: unknown) => {
     if (recoverRangeBoundsConflict(error)) return;
@@ -1792,9 +1800,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, []);
 
 	  useEffect(() => {
-	    if (activeTab === 'events') return;
+	    if (activeTab === 'events' || credentialDetailOpen) return;
 	    handleRequestLogClose();
-	  }, [activeTab, handleRequestLogClose]);
+	  }, [activeTab, credentialDetailOpen, handleRequestLogClose]);
 
 	  useEffect(() => {
 	    if (activeTab !== 'events') {
@@ -1899,6 +1907,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     : '';
   // 只有需要时间范围的 tab 才渲染 Range 控件，避免 Credentials/Pricing 产生空白占位。
   const showRangeControls = shouldShowRangeControls(activeTab);
+  const showApiKeyFilter = shouldShowApiKeyFilter(activeTab);
   const {
     requestsSparkline,
     tokensSparkline,
@@ -1918,9 +1927,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const dailyAverageCardUsage = getDailyAverageCardUsage(currentOverviewUsage, usage, reserveDailyAverageCard, loading);
 
   return (
-    <div className={styles.pageShell} data-keeper-page="usage">
+    <div className={`${styles.pageShell} ${!isEmbeddedInCPAMC ? styles.standalone : ''}`.trim()} data-keeper-page="usage">
       <div className={styles.pageFrame}>
-        <header className={styles.topBar}>
+        {isEmbeddedInCPAMC ? <header className={styles.topBar}>
           <div className={styles.brandBlock}>
             <BrandLink className={styles.eyebrow} />
           </div>
@@ -1977,7 +1986,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               {loggingOut ? t('common.loading') : t('common.logout')}
             </MainActionButton>
           </div>
-        </header>
+        </header> : <DashboardHeader
+          backToCPA={cpaManagementURL || undefined}
+          onLogout={handleRequestLogout}
+          loggingOut={loggingOut}
+          onCheckUpdates={shouldShowUpdateCheckButton(versionInfo) ? () => void handleUpdateCheck() : undefined}
+          checkingUpdates={updateCheckLoading}
+          updateAvailable={hasNewVersion}
+        />}
 
         <main className={styles.contentColumn}>
           <div className={styles.container}>
@@ -1986,28 +2002,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <div className={styles.loadingOverlayContent}>
                   <LoadingSpinner size={28} className={styles.loadingOverlaySpinner} />
                   <span className={styles.loadingOverlayText}>{t('common.loading')}</span>
-                </div>
-              </div>
-            )}
-
-            {(!isEmbeddedInCPAMC && cpaManagementURL) && (
-              <div className={styles.toolbarMetaRow}>
-                <div className={styles.toolbarMetaRight}>
-                  <a
-                    className={styles.backToCpaLink}
-                    href={cpaManagementURL}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={t('usage_stats.back_to_cpa_aria')}
-                  >
-                    <span>{t('usage_stats.back_to_cpa')}</span>
-                    <span className={styles.backToCpaIcon} aria-hidden="true">
-                      <svg viewBox="0 0 16 16" focusable="false">
-                        <path d="M6 4h6v6" />
-                        <path d="M12 4 5 11" />
-                      </svg>
-                    </span>
-                  </a>
                 </div>
               </div>
             )}
@@ -2035,7 +2029,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
             )}
 
-            <div className={styles.toolbarRow}>
+            {isEmbeddedInCPAMC ? <div className={styles.toolbarRow}>
               <div
                 className={`${styles.tabBar} ${!isEmbeddedInCPAMC ? styles.tabBarConnected : ''}`.trim()}
                 role="tablist"
@@ -2043,27 +2037,28 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 lang={i18n.resolvedLanguage || i18n.language}
               >
                 {tabOptions.map((option) => (
-                  <button
+                  <a
                     key={option.value}
-                    type="button"
+                    href={appPath(getUsageTabPath(option.value)) + cpamcEmbedSearch()}
                     role="tab"
                     aria-selected={activeTab === option.value}
                     className={`${styles.tabPill} ${activeTab === option.value ? styles.tabPillActive : ''}`.trim()}
-                    onClick={() => setActiveTab(option.value)}
+                    onClick={(event) => handleUsageTabNavigation(event, option.value)}
+                    onKeyDown={(event) => handleUsageTabKeyActivation(event, option.value, activateUsageTab)}
                   >
                     {option.label}
-                  </button>
+                  </a>
                 ))}
               </div>
 
               <div className={`${styles.toolbarActionsRight} ${!isEmbeddedInCPAMC ? styles.toolbarActionsRightAnimated : ''}`.trim()}>
                 <div className={isEmbeddedInCPAMC ? styles.toolbarContextSlotImmediate : styles.toolbarContextSlot}>
-                  {(!isEmbeddedInCPAMC || showRangeControls) && (
+                  {(!isEmbeddedInCPAMC || showApiKeyFilter) && (
                   /* 普通模式保留筛选区节点以执行过渡；CPAMC 继续按需挂载，维持既有布局。 */
                   <div
-                    className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showRangeControls ? styles.usageFilterTransitionOpen : ''}`.trim()}
-                    aria-hidden={!showRangeControls}
-                    inert={!showRangeControls}
+                    className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showApiKeyFilter ? styles.usageFilterTransitionOpen : ''}`.trim()}
+                    aria-hidden={!showApiKeyFilter}
+                    inert={!showApiKeyFilter}
                   >
                     <div className={styles.usageFilterTransitionInner}>
                       <div className={styles.usageFilterBar}>
@@ -2081,14 +2076,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       />
                     </label>
                   </div>
-                    <TimeRangeControl
+                    {showRangeControls && <TimeRangeControl
                       value={timeRange}
                       customRange={activeCustomRange}
                       timeZone={rangeTimeZone}
                       maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined}
                       onChange={handleTimeRangeChange}
                       ariaLabel={t('usage_stats.range_filter')}
-                    />
+                    />}
                       </div>
                     </div>
                   </div>
@@ -2116,7 +2111,28 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
             </div>
 
-            {activeTab === 'overview' && error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
+            : <DashboardToolbar
+              activeId={activeTab}
+              items={tabOptions.map((option) => ({ id: option.value, label: option.label, href: appPath(getUsageTabPath(option.value)) }))}
+              onNavigate={activateUsageTab}
+              filters={showApiKeyFilter ? [
+                <Select
+                  key="api-key"
+                  value={selectedApiKeyId}
+                  options={apiKeySelectOptions}
+                  onChange={setSelectedApiKeyId}
+                  ariaLabel={`${t('usage_stats.api_key_filter')}: ${apiKeySelectOptions.find((option) => option.value === selectedApiKeyId)?.label ?? ''}`}
+                  fullWidth={false}
+                  dropdownMinWidth={180}
+                  renderValue={(option) => <><span data-dashboard-filter-caption>{t('usage_stats.api_key_filter')}</span><span data-dashboard-filter-value>{option?.label}</span></>}
+                />,
+                ...showRangeControls ? [<TimeRangeControl key="range" value={timeRange} customRange={activeCustomRange} timeZone={rangeTimeZone} maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />] : [],
+              ] : []}
+              onRefresh={() => void handleManualRefresh().catch(() => {})}
+              refreshing={manualRefreshLoading}
+            />}
+
+            {activeTab === 'overview' && (error || comparisonsError) && <div className={styles.errorBox}>{(error || comparisonsError) === 'AUTH_REQUIRED' ? t('auth.session_expired') : (error || comparisonsError)}</div>}
             {activeTab === 'settings' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
             {activeTab === 'settings' && authSessionsError && <div className={styles.errorBox}>{authSessionsError}</div>}
             {activeTab === 'settings' && apiKeySettingsError && <div className={styles.errorBox}>{apiKeySettingsError}</div>}
@@ -2148,18 +2164,21 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   requestIdentity={activityRequestIdentity}
                   onWindowChange={setActivityWindow}
                 />
-
-                <OverviewRealtimePanel
-                  realtime={currentRealtime ?? undefined}
-                  loading={realtimeLoading}
-                  error={displayRealtimeError}
-                  window={realtimeWindow}
-                  onWindowChange={setRealtimeWindow}
-                  isDark={isDark}
-                  isMobile={isMobile}
-                  timezone={currentRealtime?.timezone ?? usage?.timezone}
-                />
+                <UsageComparisonCharts comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} />
               </>
+            )}
+
+            {activeTab === 'realtime' && (
+              <OverviewRealtimePanel
+                realtime={currentRealtime ?? undefined}
+                loading={realtimeLoading}
+                error={displayRealtimeError}
+                window={realtimeWindow}
+                onWindowChange={setRealtimeWindow}
+                isDark={isDark}
+                isMobile={isMobile}
+                timezone={currentRealtime?.timezone ?? status?.timezone}
+              />
             )}
 
             {activeTab === 'analysis' && (
@@ -2249,6 +2268,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       onResetQuotaForAuthIndex={credentialsData.resetQuotaForAuthIndex}
                       aliasSavingId={credentialsData.aliasSavingId}
                       onSaveAlias={credentialsData.saveUsageIdentityAlias}
+                      onOpenDetails={(row) => handleCredentialDetailOpen({ kind: 'auth-file', row })}
                       onRefreshInspectionStatus={credentialsData.refreshQuotaInspectionStatus}
                       onStartInspection={credentialsData.startQuotaInspection}
                       onAfterInvalidAccountAction={credentialsData.refresh}
@@ -2261,12 +2281,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       page={credentialsData.aiProviderPage}
                       totalPages={credentialsData.aiProviderTotalPages}
                       pageSize={credentialsData.aiProviderPageSize}
+                      activeOnly={credentialsData.aiProviderActiveOnly}
                       sort={credentialsData.aiProviderSort}
                       loading={credentialsData.loading}
                       aliasSavingId={credentialsData.aliasSavingId}
                       onSaveAlias={credentialsData.saveUsageIdentityAlias}
+                      onOpenDetails={(row) => handleCredentialDetailOpen({ kind: 'ai-provider', row })}
                       onPageChange={credentialsData.setAiProviderPage}
                       onPageSizeChange={credentialsData.setAiProviderPageSize}
+                      onActiveOnlyChange={credentialsData.setAiProviderActiveOnly}
                       onSortChange={credentialsData.setAiProviderSort}
                     />
                   )}
@@ -2280,7 +2303,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   sessions={authSessions}
                   loading={authSessionsLoading}
                   revokingId={authSessionRevokingId}
+                  aliasSavingId={authSessionAliasSavingId}
                   onLogout={handleRevokeAuthSession}
+                  onSaveAlias={handleSaveAuthSessionAlias}
                 />
                 <ApiKeySettingsCard
                   apiKeys={apiKeySettings}
@@ -2306,6 +2331,21 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
           </div>
         </main>
       </div>
+      <CredentialDetailDrawer
+        open={credentialDetailOpen}
+        selection={currentCredentialDetailSelection}
+        onResetStats={handleCredentialStatsReset}
+        onAuthRequired={onAuthRequired}
+        requestLogAccessEnabled={requestLogAccessEnabled}
+        onRequestLogOpen={handleRequestLogOpen}
+        requestLogLoadingEventId={requestLogLoadingEventId}
+        requestLogResponse={requestLogResponse}
+        requestLogError={requestLogError}
+        onRequestLogClose={handleRequestLogClose}
+        onRequestLogDownload={handleRequestLogDownload}
+        requestLogDownloading={requestLogDownloading}
+        onClose={handleCredentialDetailClose}
+      />
       <Modal
         open={logoutConfirmOpen}
         title={t('usage_stats.logout_confirm_title')}

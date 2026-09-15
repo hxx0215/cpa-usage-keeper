@@ -32,9 +32,11 @@ type UsageFilter struct {
 	CursorMode      bool
 	CursorTimestamp *time.Time
 	CursorID        int64
+	SkipTotalCount  bool
 	Model           string
 	Source          string
 	AuthIndex       string
+	AuthType        string
 	APIKeyID        string
 	Result          string
 }
@@ -197,6 +199,7 @@ type RealtimeCacheLevelPoint struct {
 
 // UsageOverviewRealtime 是 Overview 页面实时图表区使用的数据块。
 type UsageOverviewRealtime struct {
+	Insights             *repodto.RealtimeInsightsRecord
 	Window               string
 	BucketSeconds        int64
 	WindowStart          time.Time
@@ -211,7 +214,8 @@ type UsageOverviewRealtime struct {
 
 // UsageOverviewSnapshot 是 overview 的服务层结果。
 type UsageOverviewSnapshot struct {
-	Usage   *repodto.StatisticsSnapshot
-	Summary UsageOverviewSummary
-	Series  UsageOverviewSeries
+	Comparisons *repodto.UsageOverviewComparisonsRecord
+	Usage       *repodto.StatisticsSnapshot
+	Summary     UsageOverviewSummary
+	Series      UsageOverviewSeries
 }

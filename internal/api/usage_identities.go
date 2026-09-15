@@ -39,6 +39,15 @@ type usageIdentityTypeCount struct {
 	Count int64  `json:"count"`
 }
 
+type usageIdentityPeriodStats struct {
+	TotalRequests   int64 `json:"total_requests"`
+	SuccessCount    int64 `json:"success_count"`
+	FailureCount    int64 `json:"failure_count"`
+	InputTokens     int64 `json:"input_tokens"`
+	CacheReadTokens int64 `json:"cache_read_tokens"`
+	TotalTokens     int64 `json:"total_tokens"`
+}
+
 type usageIdentityResponse struct {
 	ID                         string                         `json:"id"`
 	Name                       string                         `json:"name"`
@@ -70,6 +79,8 @@ type usageIdentityResponse struct {
 	FirstUsedAt                *time.Time                     `json:"first_used_at,omitempty"`
 	LastUsedAt                 *time.Time                     `json:"last_used_at,omitempty"`
 	StatsUpdatedAt             *time.Time                     `json:"stats_updated_at,omitempty"`
+	StatsResetAt               *time.Time                     `json:"stats_reset_at,omitempty"`
+	PeriodStats                usageIdentityPeriodStats       `json:"period_stats"`
 	IsDeleted                  bool                           `json:"is_deleted"`
 	CreatedAt                  time.Time                      `json:"created_at"`
 	UpdatedAt                  time.Time                      `json:"updated_at"`
@@ -78,14 +89,17 @@ type usageIdentityResponse struct {
 }
 
 type usageCredentialHealthResponse struct {
-	WindowSeconds int64                         `json:"window_seconds"`
-	BucketSeconds int64                         `json:"bucket_seconds"`
-	WindowStart   time.Time                     `json:"window_start"`
-	WindowEnd     time.Time                     `json:"window_end"`
-	TotalSuccess  int64                         `json:"total_success"`
-	TotalFailure  int64                         `json:"total_failure"`
-	SuccessRate   float64                       `json:"success_rate"`
-	Buckets       []usageCredentialHealthBucket `json:"buckets"`
+	WindowSeconds int64     `json:"window_seconds"`
+	BucketSeconds int64     `json:"bucket_seconds"`
+	WindowStart   time.Time `json:"window_start"`
+	WindowEnd     time.Time `json:"window_end"`
+	TotalSuccess  int64     `json:"total_success"`
+	TotalFailure  int64     `json:"total_failure"`
+	SuccessRate   float64   `json:"success_rate"`
+	// 窗口内 canonical token 合计；前端用与终身缓存率相同的公式派生百分比。
+	InputTokens     int64                         `json:"input_tokens"`
+	CacheReadTokens int64                         `json:"cache_read_tokens"`
+	Buckets         []usageCredentialHealthBucket `json:"buckets"`
 }
 
 type usageCredentialHealthBucket struct {
@@ -97,6 +111,50 @@ type usageCredentialHealthBucket struct {
 }
 
 func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider service.UsageIdentityProvider) {
+	router.GET("/usage/identities/:id", func(c *gin.Context) {
+		reader, ok := usageIdentityProvider.(service.UsageIdentityReader)
+		if !ok {
+			c.JSON(http.StatusNotImplemented, gin.H{"error": "usage identity detail is not configured"})
+			return
+		}
+		id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || id <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid usage identity id"})
+			return
+		}
+		detail, err := reader.GetUsageIdentity(c.Request.Context(), id)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "usage identity not found"})
+				return
+			}
+			writeInternalError(c, "get usage identity failed", err)
+			return
+		}
+		c.JSON(http.StatusOK, mapUsageIdentityResponseWithHealth(detail.Identity, &detail.CredentialHealth))
+	})
+	router.POST("/usage/identities/:id/stats/reset", func(c *gin.Context) {
+		resetter, ok := usageIdentityProvider.(service.UsageIdentityStatsResetter)
+		if !ok {
+			c.JSON(http.StatusNotImplemented, gin.H{"error": "usage identity stats reset is not configured"})
+			return
+		}
+		id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || id <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid usage identity id"})
+			return
+		}
+		row, err := resetter.ResetUsageIdentityStats(c.Request.Context(), id)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "usage identity not found"})
+				return
+			}
+			writeInternalError(c, "reset usage identity stats failed", err)
+			return
+		}
+		c.JSON(http.StatusOK, mapUsageIdentityResponse(row))
+	})
 	router.GET("/usage/identities/page", func(c *gin.Context) {
 		if usageIdentityProvider == nil {
 			c.JSON(http.StatusOK, usageIdentitiesPageResponse{Identities: []usageIdentityResponse{}, Page: 1, PageSize: 10, TypeCounts: []usageIdentityTypeCount{}})
@@ -249,10 +307,6 @@ func mapUsageIdentityResponse(item entities.UsageIdentity) usageIdentityResponse
 
 func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *service.UsageCredentialHealthSnapshot) usageIdentityResponse {
 	// AI Provider identity 是稳定 auth-index；响应不直接发布原始 LookupKey，OpenAI Compatibility 仅按 Issue #281 在 displayName 中保留脱敏 Key 片段。
-	identity := item.Identity
-	if item.AuthType == entities.UsageIdentityAuthTypeAIProvider {
-		identity = helper.RedactSensitiveValue(item.Identity)
-	}
 	var fileName *string
 	var filePath *string
 	if item.AuthType == entities.UsageIdentityAuthTypeAuthFile {
@@ -272,7 +326,7 @@ func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *ser
 		DisplayName:                helper.UsageIdentityDisplayName(item),
 		AuthType:                   item.AuthType,
 		AuthTypeName:               item.AuthTypeName,
-		Identity:                   identity,
+		Identity:                   item.Identity,
 		Type:                       item.Type,
 		Provider:                   item.Provider,
 		Prefix:                     item.Prefix,
@@ -296,11 +350,20 @@ func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *ser
 		FirstUsedAt:                item.FirstUsedAt,
 		LastUsedAt:                 item.LastUsedAt,
 		StatsUpdatedAt:             item.StatsUpdatedAt,
-		IsDeleted:                  item.IsDeleted,
-		CreatedAt:                  item.CreatedAt,
-		UpdatedAt:                  item.UpdatedAt,
-		DeletedAt:                  item.DeletedAt,
-		CredentialHealth:           mapUsageCredentialHealthResponse(health),
+		StatsResetAt:               item.StatsResetAt,
+		PeriodStats: usageIdentityPeriodStats{
+			TotalRequests:   item.TotalRequests - item.ResetTotalRequests,
+			SuccessCount:    item.SuccessCount - item.ResetSuccessCount,
+			FailureCount:    item.FailureCount - item.ResetFailureCount,
+			InputTokens:     item.InputTokens - item.ResetInputTokens,
+			CacheReadTokens: item.CacheReadTokens - item.ResetCacheReadTokens,
+			TotalTokens:     item.TotalTokens - item.ResetTotalTokens,
+		},
+		IsDeleted:        item.IsDeleted,
+		CreatedAt:        item.CreatedAt,
+		UpdatedAt:        item.UpdatedAt,
+		DeletedAt:        item.DeletedAt,
+		CredentialHealth: mapUsageCredentialHealthResponse(health),
 	}
 }
 
@@ -373,13 +436,15 @@ func mapUsageCredentialHealthResponse(snapshot *service.UsageCredentialHealthSna
 		})
 	}
 	return &usageCredentialHealthResponse{
-		WindowSeconds: snapshot.WindowSeconds,
-		BucketSeconds: snapshot.BucketSeconds,
-		WindowStart:   snapshot.WindowStart,
-		WindowEnd:     snapshot.WindowEnd,
-		TotalSuccess:  snapshot.TotalSuccess,
-		TotalFailure:  snapshot.TotalFailure,
-		SuccessRate:   snapshot.SuccessRate,
-		Buckets:       buckets,
+		WindowSeconds:   snapshot.WindowSeconds,
+		BucketSeconds:   snapshot.BucketSeconds,
+		WindowStart:     snapshot.WindowStart,
+		WindowEnd:       snapshot.WindowEnd,
+		TotalSuccess:    snapshot.TotalSuccess,
+		TotalFailure:    snapshot.TotalFailure,
+		SuccessRate:     snapshot.SuccessRate,
+		InputTokens:     snapshot.InputTokens,
+		CacheReadTokens: snapshot.CacheReadTokens,
+		Buckets:         buckets,
 	}
 }
