@@ -73,6 +73,8 @@ const (
 	migrationAddUsageEventClientMetadata = "20260729_add_usage_event_client_metadata"
 	// migrationCreateUsageEventArchive 创建永久冷表；运行期归档在 schema 完成后才会启动。
 	migrationCreateUsageEventArchive = "20260730_create_usage_event_archive"
+	// migrationAddAuthSessionClientMetadata 保存会话客户端与最近活动信息，旧会话只回填活动时间。
+	migrationAddAuthSessionClientMetadata = "20260813_add_auth_session_client_metadata"
 )
 
 type schemaMigration struct {
@@ -187,6 +189,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationUsageLatencyStats, run: usageLatencyStatsMigration, disableTransaction: true},
 		{version: migrationAddUsageEventClientMetadata, run: addUsageEventClientMetadataMigration},
 		{version: migrationCreateUsageEventArchive, run: createUsageEventArchiveMigration},
+		{version: migrationAddAuthSessionClientMetadata, run: addAuthSessionClientMetadataMigration},
 	}
 }
 
