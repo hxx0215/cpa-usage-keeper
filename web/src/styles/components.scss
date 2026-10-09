@@ -133,7 +133,7 @@
   font-size: 12px;
 }
 
-// 页面级主操作复用排名头像入口：主题表面保持不变，悬停只做轻微上浮。
+// 页面级主操作：主题表面保持不变，悬停只做轻微上浮。
 .main-action-button-shell {
   display: inline-flex;
   align-items: stretch;
@@ -238,6 +238,22 @@ textarea {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba($primary-color, 0.18);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+    background-color: var(--bg-tertiary);
+    color: var(--text-secondary);
+    box-shadow: none;
+  }
+
+  &[aria-invalid='true'] {
+    border-color: var(--failure-badge-text);
+  }
+
+  &[aria-invalid='true']:focus {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--failure-badge-text) 18%, transparent);
   }
 }
 

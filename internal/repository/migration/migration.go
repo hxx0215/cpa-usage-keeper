@@ -92,6 +92,13 @@ const (
 	migrationAddUsageEventAPIGroupKeyTimestampIndex = "20260905_usage_event_api_group_key_timestamp_index"
 	migrationAddUsageIdentityStatsReset             = "20260910_usage_identity_stats_reset"
 	migrationAddUsageEventSessionFields             = "20260912_usage_event_session_fields"
+	migrationAddUsageEventResponseModel             = "20260918_usage_event_response_model"
+	migrationAddUsageEventStreamStatusCode          = "20260919_usage_event_stream_status_code"
+	migrationNormalizeUsageEventParentSessionNull   = "20260922_normalize_usage_event_parent_session_null"
+	// migrationLimitLatencySamplePoints 缩小已保存散点，事务前必须备份旧 BLOB。
+	migrationLimitLatencySamplePoints = "20260925_limit_latency_sample_points"
+	// migrationAddUsageEventTraceMetadata 只保存上游提供的执行与节点元数据，历史行保持 NULL。
+	migrationAddUsageEventTraceMetadata = "20261008_usage_event_trace_metadata"
 )
 
 type schemaMigration struct {
@@ -237,6 +244,11 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventAPIGroupKeyTimestampIndex, run: addUsageEventAPIGroupKeyTimestampIndexMigration},
 		{version: migrationAddUsageIdentityStatsReset, run: addUsageIdentityStatsResetMigration},
 		{version: migrationAddUsageEventSessionFields, run: addUsageEventSessionFieldsMigration},
+		{version: migrationAddUsageEventResponseModel, run: addUsageEventResponseModelMigration},
+		{version: migrationAddUsageEventStreamStatusCode, run: addUsageEventStreamStatusCodeMigration},
+		{version: migrationNormalizeUsageEventParentSessionNull, run: normalizeUsageEventParentSessionNullMigration},
+		{version: migrationLimitLatencySamplePoints, run: limitLatencySamplePointsMigration, destructive: true},
+		{version: migrationAddUsageEventTraceMetadata, run: addUsageEventTraceMetadataMigration},
 	}
 }
 

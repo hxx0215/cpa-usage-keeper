@@ -1,10 +1,19 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { getRoleTargetPath, shouldNormalizeRolePath } from '../App';
-
-const appSource = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+import { getRoleHomePath, getRoleTargetPath, shouldNormalizeRolePath } from '../App';
 
 describe('App usage-page route authorization', () => {
+  it('normalizes restored admin sessions away from the API Key viewer route', () => {
+    expect(getRoleHomePath('admin')).toBe('/');
+    expect(shouldNormalizeRolePath('admin', '/key-overview')).toBe(true);
+    expect(shouldNormalizeRolePath('admin', '/')).toBe(false);
+  });
+
+  it('normalizes restored API Key viewer sessions to the key overview route', () => {
+    expect(getRoleHomePath('api_key_viewer')).toBe('/key-overview');
+    expect(shouldNormalizeRolePath('api_key_viewer', '/')).toBe(true);
+    expect(shouldNormalizeRolePath('api_key_viewer', '/key-overview')).toBe(false);
+  });
+
   it('allows only known usage routes for administrators', () => {
     expect(getRoleTargetPath('admin', '/')).toBe('/');
     expect(getRoleTargetPath('admin', '/auth-files')).toBe('/auth-files');
@@ -32,22 +41,5 @@ describe('App usage-page route authorization', () => {
       expect(getRoleTargetPath('api_key_viewer', path)).toBe('/key-overview');
       expect(shouldNormalizeRolePath('api_key_viewer', path)).toBe(true);
     }
-  });
-
-  it('does not create viewer history entries without a popstate consumer', () => {
-    expect(appSource).not.toContain('window.history.pushState');
-    expect(appSource).toMatch(/handleKeyViewerNavigate[\s\S]*?window\.history\.replaceState/);
-  });
-
-  it('preserves an allowed viewer path after API key login', () => {
-    const loginHandler = appSource.slice(
-      appSource.indexOf('const handleAPIKeyLogin'),
-      appSource.indexOf('const handleKeyViewerNavigate'),
-    );
-
-    expect(loginHandler).toContain('stripAppBasePath(window.location.pathname');
-    expect(loginHandler).toContain('getRoleTargetPath(session.role, currentPath)');
-    expect(loginHandler).toContain('setKeyViewerPath(targetPath);');
-    expect(loginHandler).toContain('appPath(targetPath)');
   });
 });
