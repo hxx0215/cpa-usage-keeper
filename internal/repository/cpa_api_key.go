@@ -8,6 +8,7 @@ import (
 	"cpa-usage-keeper/internal/helper"
 
 	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
 )
 
 func SyncCPAAPIKeys(db *gorm.DB, keys []string, syncedAt time.Time) error {
